@@ -1,0 +1,55 @@
+/*
+ * gl_hook.h - GoldSrc monitor-texture hijack.
+ *
+ * Strategy (Path B, real Steam GoldSrc):
+ *   1. At HUD_Init, install an inline hook (MinHook) on glTexImage2D.
+ *   2. When the engine uploads map textures, fingerprint every upload
+ *      (dims + FNV-1a of pixel data). Uploads matching a fingerprint in
+ *      monitor_fingerprints.txt get their GL texture name recorded.
+ *   3. Every rendered frame, glTexSubImage2D the (scaled) TempleOS
+ *      framebuffer into every recorded texture. Every instance of that
+ *      monitor texture in the map becomes a live screen.
+ *
+ * Discovery mode (toshl_log_uploads 1): logs every texture upload's
+ * dims+hash to toshl_uploads.log so you can find your monitor textures
+ * by staring at one in-game and diffing.
+ */
+
+#ifndef TOSHL_GL_HOOK_H
+#define TOSHL_GL_HOOK_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Install hooks. Call from HUD_Init (before any map is loaded). */
+bool glhook_install(void);
+void glhook_remove(void);
+
+/* Load fingerprints ("WxH:HASHHEX" lines) from a file in the mod dir. */
+int  glhook_load_fingerprints(const char *path);
+
+/* Enable/disable upload logging (discovery mode). */
+void glhook_set_logging(bool on, const char *log_path);
+
+/* Forget captured texture ids (call on map change / vid_restart). */
+void glhook_reset_captures(void);
+
+/*
+ * Blit an RGBA8888 source image into every captured monitor texture,
+ * nearest-neighbour scaled to each texture's own dimensions.
+ * Call once per frame from the render path (HUD_Redraw is fine) with
+ * a valid GL context current. Cheap: skips work if serial is unchanged.
+ */
+void glhook_blit(const uint8_t *rgba, int src_w, int src_h, uint32_t serial);
+
+/* How many live monitor textures were captured this map. */
+int  glhook_capture_count(void);
+
+#ifdef __cplusplus
+}
+#endif
+#endif /* TOSHL_GL_HOOK_H */

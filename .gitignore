@@ -1,0 +1,12 @@
+# build output
+build/
+out/
+.vs/
+
+# fetched by vm/setup.ps1, machine-specific
+vm/TempleOS.iso
+vm/qemu_path.txt
+
+# runtime logs and probe output
+toshl_uploads.log
+*.ppm

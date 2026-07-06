@@ -1,0 +1,20 @@
+# monitor_fingerprints.txt
+#
+# One fingerprint per line: WIDTHxHEIGHT:FNV1A_HASH_HEX
+# Any texture the engine uploads matching a line here becomes a live
+# TempleOS screen. Every instance of that texture in the map lights up.
+#
+# HOW TO FIND YOUR FINGERPRINTS:
+#   1. Build the mod with discovery logging (set env var TOSHL_LOG=1, or
+#      call glhook_set_logging(true, ...)).
+#   2. Load a map, look directly at the monitor prop you want to hijack.
+#   3. Check toshl_uploads.log. Each line is  WxH:hash tex=N fmt=0xNNNN.
+#      GoldSrc computer/monitor screen textures are usually 64x64 or 128x128.
+#   4. Copy the WxH:hash of the screen texture here.
+#
+# The classic HL1 monitor textures ("+0~computer", "screen", etc.) live in
+# halflife.wad / the map's embedded textures. Fill these in for your target
+# maps; the hashes below are PLACEHOLDERS and will not match anything.
+
+# 64x64:0000000000000000
+# 128x128:0000000000000000
