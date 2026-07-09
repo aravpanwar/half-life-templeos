@@ -20,13 +20,8 @@ extern "C" {
 #include <windows.h>
 #include <stdio.h>
 
-// ---- HL SDK surface we lean on (declared here to avoid pulling full SDK
-//      headers into this snippet; in the real tree, include hud.h/cl_util.h)
-struct cl_enginefunc_t;                 // from cl_dll/cdll_int
-extern cl_enginefunc_t *gEngfuncs;      // populated in Initialize()
-typedef struct { float origin[3], angles[3]; } local_view_t;
-
-// forward decls for helpers we expect from cl_util
+// ---- HL SDK surface we lean on. These three helpers are implemented in the
+//      SDK-side glue (toshl_glue.cpp), which owns all direct engine access.
 extern "C" void  Con_Printf(const char *fmt, ...);   // wraps gEngfuncs->Con_Printf
 extern "C" int   TraceMonitorInFront(float max_dist, float hit_uv[2]); // see .md
 extern "C" void  LockPlayerMovement(int locked); // suppresses CL_CreateMove
@@ -139,6 +134,11 @@ extern "C" void TOSHL_ExitTerminal() {
 // ------------------------------------------------------------ lifecycle --
 
 extern "C" void TOSHL_Init() {
+    // HUD_Init fires on every server connect / map load; only set up once.
+    static bool inited = false;
+    if (inited) return;
+    inited = true;
+
     resolve_mod_dir();
     if (!glhook_install()) { Con_Printf("[toshl] GL hook install FAILED\n"); return; }
     char fp[MAX_PATH]; _snprintf(fp, MAX_PATH, "%s\\monitor_fingerprints.txt", g_mod_dir);
