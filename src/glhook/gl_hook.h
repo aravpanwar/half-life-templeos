@@ -49,6 +49,21 @@ void glhook_blit(const uint8_t *rgba, int src_w, int src_h, uint32_t serial);
 /* How many live monitor textures were captured this map. */
 int  glhook_capture_count(void);
 
+/*
+ * Discovery mode. When enabled, every screen-plausible texture upload is
+ * captured (not just fingerprint matches), so you can cycle a highlight
+ * through them in-game to identify a monitor:
+ *   - glhook_discover_paint() paints a vivid checkerboard onto the currently
+ *     "solo" captured texture. Call once per frame with a live GL context.
+ *   - glhook_cycle(+1/-1) moves the solo selection.
+ *   - glhook_solo_fingerprint() writes the current selection's "WxH:hash"
+ *     (plus an index) into `out`, ready to paste into monitor_fingerprints.txt.
+ */
+void glhook_discover_enable(bool on);
+void glhook_discover_paint(void);
+void glhook_cycle(int delta);
+void glhook_solo_fingerprint(char *out, int out_size);
+
 #ifdef __cplusplus
 }
 #endif

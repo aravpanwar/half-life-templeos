@@ -23,14 +23,19 @@
 /* ------------------------------------------------------------ config -- */
 
 #define MAX_FINGERPRINTS 64
-#define MAX_CAPTURES     256
+#define MAX_CAPTURES     512
 
 typedef struct { int w, h; uint64_t hash; } fingerprint_t;
 
-typedef struct { GLuint tex; int w, h; } capture_t;
+typedef struct { GLuint tex; int w, h; uint64_t hash; } capture_t;
 
 static fingerprint_t g_fps[MAX_FINGERPRINTS];
 static int           g_fp_count;
+
+/* discovery mode: capture every screen-plausible upload and let the player
+   cycle a "solo" highlight through them to identify a monitor in-game. */
+static bool          g_discover;
+static int           g_solo = -1;
 
 static capture_t     g_caps[MAX_CAPTURES];
 static volatile LONG g_cap_count;
@@ -71,14 +76,14 @@ typedef void (WINAPI *glTexImage2D_t)(GLenum, GLint, GLint, GLsizei, GLsizei,
                                       GLint, GLenum, GLenum, const void *);
 static glTexImage2D_t o_glTexImage2D;
 
-static void remember_capture(GLuint tex, int w, int h) {
+static void remember_capture(GLuint tex, int w, int h, uint64_t hash) {
     EnterCriticalSection(&g_cap_lock);
     LONG n = g_cap_count;
     for (LONG i = 0; i < n; i++) {
         if (g_caps[i].tex == tex) { LeaveCriticalSection(&g_cap_lock); return; }
     }
     if (n < MAX_CAPTURES) {
-        g_caps[n].tex = tex; g_caps[n].w = w; g_caps[n].h = h;
+        g_caps[n].tex = tex; g_caps[n].w = w; g_caps[n].h = h; g_caps[n].hash = hash;
         InterlockedIncrement(&g_cap_count);
     }
     LeaveCriticalSection(&g_cap_lock);
@@ -109,11 +114,21 @@ static void WINAPI hk_glTexImage2D(GLenum target, GLint level, GLint internalfmt
         }
     }
 
+    if (g_discover) {
+        /* capture every screen-plausible texture for interactive cycling */
+        if (w >= 96 && h >= 96) {
+            GLint bound = 0;
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
+            if (bound > 0) remember_capture((GLuint)bound, w, h, hash);
+        }
+        return;
+    }
+
     for (int i = 0; i < g_fp_count; i++) {
         if (g_fps[i].w == w && g_fps[i].h == h && g_fps[i].hash == hash) {
             GLint bound = 0;
             glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
-            if (bound > 0) remember_capture((GLuint)bound, w, h);
+            if (bound > 0) remember_capture((GLuint)bound, w, h, hash);
             break;
         }
     }
@@ -172,10 +187,82 @@ void glhook_reset_captures(void) {
     EnterCriticalSection(&g_cap_lock);
     InterlockedExchange(&g_cap_count, 0);
     g_last_serial = 0xFFFFFFFF;
+    g_solo = -1;
     LeaveCriticalSection(&g_cap_lock);
 }
 
 int glhook_capture_count(void) { return (int)g_cap_count; }
+
+/* ---------------------------------------------------------- discovery -- */
+
+void glhook_discover_enable(bool on) { g_discover = on; }
+
+void glhook_cycle(int delta) {
+    EnterCriticalSection(&g_cap_lock);
+    LONG n = g_cap_count;
+    if (n <= 0) {
+        g_solo = -1;
+    } else if (g_solo < 0) {
+        g_solo = 0;
+    } else {
+        g_solo = (int)((((LONG)g_solo + delta) % n + n) % n);
+    }
+    LeaveCriticalSection(&g_cap_lock);
+}
+
+void glhook_solo_fingerprint(char *out, int out_size) {
+    if (!out || out_size <= 0) return;
+    EnterCriticalSection(&g_cap_lock);
+    if (g_solo < 0 || g_solo >= g_cap_count) {
+        _snprintf(out, out_size - 1, "none (%d captured)", (int)g_cap_count);
+    } else {
+        capture_t *c = &g_caps[g_solo];
+        _snprintf(out, out_size - 1, "%dx%d:%016llx  [%d/%d]",
+                  c->w, c->h, (unsigned long long)c->hash,
+                  g_solo + 1, (int)g_cap_count);
+    }
+    out[out_size - 1] = 0;
+    LeaveCriticalSection(&g_cap_lock);
+}
+
+void glhook_discover_paint(void) {
+    if (!g_discover) return;
+
+    EnterCriticalSection(&g_cap_lock);
+    int idx = g_solo;
+    if (idx < 0 || idx >= g_cap_count) { LeaveCriticalSection(&g_cap_lock); return; }
+    capture_t cap = g_caps[idx];
+    LeaveCriticalSection(&g_cap_lock);
+
+    size_t need = (size_t)cap.w * cap.h * 4;
+    if (need > g_scaled_cap) {
+        uint8_t *nb = (uint8_t *)realloc(g_scaled, need);
+        if (!nb) return;
+        g_scaled = nb; g_scaled_cap = need;
+    }
+
+    /* vivid magenta/green checkerboard so the target screen is unmistakable */
+    for (int y = 0; y < cap.h; y++) {
+        for (int x = 0; x < cap.w; x++) {
+            uint8_t *p = g_scaled + ((size_t)y * cap.w + x) * 4;
+            int c = ((x >> 4) ^ (y >> 4)) & 1;
+            p[0] = c ? 255 : 0;   /* R */
+            p[1] = c ? 0 : 255;   /* G */
+            p[2] = 255;           /* B */
+            p[3] = 255;           /* A */
+        }
+    }
+
+    GLint prev_bound = 0, prev_align = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_bound);
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &prev_align);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glBindTexture(GL_TEXTURE_2D, cap.tex);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, cap.w, cap.h,
+                    GL_RGBA, GL_UNSIGNED_BYTE, g_scaled);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)prev_bound);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, prev_align);
+}
 
 /* nearest-neighbour RGBA scale */
 static void scale_rgba(const uint8_t *src, int sw, int sh,

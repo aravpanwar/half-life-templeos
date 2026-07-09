@@ -40,6 +40,7 @@ static bool          g_in_terminal;      // player currently driving TempleOS
 static bool          g_shift_down;
 static int           g_fb_w, g_fb_h;
 static char          g_mod_dir[MAX_PATH];
+static bool          g_discover_mode;    // TOSHL_DISCOVER=1: highlight screens
 
 // -------------------------------------------------------------- helpers --
 
@@ -75,6 +76,7 @@ static bool ensure_vm_and_rfb() {
 // Call from HUD_Redraw (context current). Uploads the latest VM frame into
 // every captured monitor texture.
 extern "C" void TOSHL_OnRedraw() {
+    if (g_discover_mode) { glhook_discover_paint(); return; }
     if (!g_rfb) return;
     uint32_t serial;
     const uint8_t *frame = rfb_acquire_frame(g_rfb, &serial);
@@ -144,9 +146,36 @@ extern "C" void TOSHL_Init() {
     char fp[MAX_PATH]; _snprintf(fp, MAX_PATH, "%s\\monitor_fingerprints.txt", g_mod_dir);
     int n = glhook_load_fingerprints(fp);
     Con_Printf("[toshl] loaded %d monitor fingerprint(s)\n", n);
-    // discovery mode toggle via env var for convenience
+    // upload logging toggle via env var for convenience
     if (GetEnvironmentVariableA("TOSHL_LOG", NULL, 0))
         glhook_set_logging(true, "toshl_uploads.log");
+
+    // discovery mode: capture-all + cycle a highlight to identify screens.
+    if (GetEnvironmentVariableA("TOSHL_DISCOVER", NULL, 0)) {
+        g_discover_mode = true;
+        glhook_discover_enable(true);
+        Con_Printf("[toshl] DISCOVER mode: bind keys to toshl_next / toshl_prev,\n");
+        Con_Printf("[toshl] cycle until a screen turns magenta, then toshl_lock.\n");
+    }
+}
+
+// Discovery console-command backends (invoked from the SDK glue). Cycling
+// moves the highlight; lock prints the current screen's fingerprint to paste
+// into monitor_fingerprints.txt.
+extern "C" void TOSHL_DiscoverCycle(int delta) {
+    glhook_cycle(delta);
+    char b[96]; glhook_solo_fingerprint(b, sizeof(b));
+    Con_Printf("[toshl] highlighting %s\n", b);
+}
+
+extern "C" void TOSHL_DiscoverPrint() {
+    char b[96]; glhook_solo_fingerprint(b, sizeof(b));
+    Con_Printf("[toshl] LOCK -> add this line to monitor_fingerprints.txt: %s\n", b);
+    // Also append to <mod>/toshl_lock.txt so the fingerprint can be recovered
+    // without reading the console.
+    char path[MAX_PATH]; _snprintf(path, MAX_PATH, "%s\\toshl_lock.txt", g_mod_dir);
+    FILE *f = fopen(path, "a");
+    if (f) { fprintf(f, "%s\n", b); fclose(f); }
 }
 
 extern "C" void TOSHL_OnMapChange() { glhook_reset_captures(); }
