@@ -36,6 +36,9 @@ static int           g_fp_count;
    cycle a "solo" highlight through them to identify a monitor in-game. */
 static bool          g_discover;
 static int           g_solo = -1;
+static int           g_painted = -1;   /* capture idx currently overwritten */
+static uint8_t      *g_orig;           /* saved original pixels of g_painted */
+static size_t        g_orig_cap;
 
 static capture_t     g_caps[MAX_CAPTURES];
 static volatile LONG g_cap_count;
@@ -188,6 +191,7 @@ void glhook_reset_captures(void) {
     InterlockedExchange(&g_cap_count, 0);
     g_last_serial = 0xFFFFFFFF;
     g_solo = -1;
+    g_painted = -1;
     LeaveCriticalSection(&g_cap_lock);
 }
 
@@ -225,14 +229,55 @@ void glhook_solo_fingerprint(char *out, int out_size) {
     LeaveCriticalSection(&g_cap_lock);
 }
 
+/* Restore the previously highlighted texture's original level-0 pixels. */
+static void discover_unpaint(void) {
+    if (g_painted < 0 || g_painted >= g_cap_count || !g_orig) { g_painted = -1; return; }
+    capture_t *c = &g_caps[g_painted];
+    GLint pb = 0, pa = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &pb);
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &pa);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glBindTexture(GL_TEXTURE_2D, c->tex);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, c->w, c->h,
+                    GL_RGBA, GL_UNSIGNED_BYTE, g_orig);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)pb);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, pa);
+    g_painted = -1;
+}
+
 void glhook_discover_paint(void) {
     if (!g_discover) return;
 
-    EnterCriticalSection(&g_cap_lock);
     int idx = g_solo;
-    if (idx < 0 || idx >= g_cap_count) { LeaveCriticalSection(&g_cap_lock); return; }
+    LONG n = g_cap_count;
+
+    /* Selection changed: restore the old texture, snapshot the new one so it
+       can be restored later. This makes only ONE texture highlighted at a
+       time instead of permanently overwriting everything we pass through. */
+    if (g_painted != idx) {
+        discover_unpaint();
+        if (idx >= 0 && idx < n) {
+            capture_t *c = &g_caps[idx];
+            size_t need = (size_t)c->w * c->h * 4;
+            if (need > g_orig_cap) {
+                uint8_t *nb = (uint8_t *)realloc(g_orig, need);
+                if (!nb) return;
+                g_orig = nb; g_orig_cap = need;
+            }
+            GLint pb = 0, pa = 0;
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &pb);
+            glGetIntegerv(GL_PACK_ALIGNMENT, &pa);
+            glPixelStorei(GL_PACK_ALIGNMENT, 1);
+            glBindTexture(GL_TEXTURE_2D, c->tex);
+            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, g_orig);
+            glBindTexture(GL_TEXTURE_2D, (GLuint)pb);
+            glPixelStorei(GL_PACK_ALIGNMENT, pa);
+            g_painted = idx;
+        }
+    }
+
+    if (idx < 0 || idx >= n) return;
     capture_t cap = g_caps[idx];
-    LeaveCriticalSection(&g_cap_lock);
 
     size_t need = (size_t)cap.w * cap.h * 4;
     if (need > g_scaled_cap) {
@@ -241,11 +286,11 @@ void glhook_discover_paint(void) {
         g_scaled = nb; g_scaled_cap = need;
     }
 
-    /* vivid magenta/green checkerboard so the target screen is unmistakable */
+    /* vivid magenta/green checkerboard, chunky (32px) so it reads as squares */
     for (int y = 0; y < cap.h; y++) {
         for (int x = 0; x < cap.w; x++) {
             uint8_t *p = g_scaled + ((size_t)y * cap.w + x) * 4;
-            int c = ((x >> 4) ^ (y >> 4)) & 1;
+            int c = ((x >> 5) ^ (y >> 5)) & 1;
             p[0] = c ? 255 : 0;   /* R */
             p[1] = c ? 0 : 255;   /* G */
             p[2] = 255;           /* B */

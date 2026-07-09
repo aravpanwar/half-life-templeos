@@ -16,5 +16,5 @@
 # halflife.wad / the map's embedded textures. Fill these in for your target
 # maps; the hashes below are PLACEHOLDERS and will not match anything.
 
-# 64x64:0000000000000000
-# 128x128:0000000000000000
+# --- c1a0 reception hall, world-map display region (first bring-up target) ---
+128x128:78a1765f6e137d6f

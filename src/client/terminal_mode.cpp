@@ -41,6 +41,7 @@ static bool          g_shift_down;
 static int           g_fb_w, g_fb_h;
 static char          g_mod_dir[MAX_PATH];
 static bool          g_discover_mode;    // TOSHL_DISCOVER=1: highlight screens
+static bool          g_autovm;           // TOSHL_AUTOVM=1: start VM, blit, no +use
 
 // -------------------------------------------------------------- helpers --
 
@@ -77,6 +78,20 @@ static bool ensure_vm_and_rfb() {
 // every captured monitor texture.
 extern "C" void TOSHL_OnRedraw() {
     if (g_discover_mode) { glhook_discover_paint(); return; }
+
+    // AUTOVM: lazily bring up the VM (no +use needed). One non-blocking
+    // connect attempt per frame; loopback refuses instantly while QEMU boots.
+    if (g_autovm && !g_rfb) {
+        if (!vm_is_running()) vm_launch(g_mod_dir, VNC_DISPLAY);
+        rfb_client_t *c = rfb_connect(VM_HOST, VNC_PORT);
+        if (c) {
+            g_rfb = c;
+            rfb_get_size(g_rfb, &g_fb_w, &g_fb_h);
+            rfb_start(g_rfb);
+            Con_Printf("[toshl] VM online at %dx%d (autovm)\n", g_fb_w, g_fb_h);
+        }
+    }
+
     if (!g_rfb) return;
     uint32_t serial;
     const uint8_t *frame = rfb_acquire_frame(g_rfb, &serial);
@@ -154,8 +169,15 @@ extern "C" void TOSHL_Init() {
     if (GetEnvironmentVariableA("TOSHL_DISCOVER", NULL, 0)) {
         g_discover_mode = true;
         glhook_discover_enable(true);
-        Con_Printf("[toshl] DISCOVER mode: bind keys to toshl_next / toshl_prev,\n");
-        Con_Printf("[toshl] cycle until a screen turns magenta, then toshl_lock.\n");
+        Con_Printf("[toshl] DISCOVER mode: press USE (E) to cycle the highlight\n");
+        Con_Printf("[toshl] across screen textures. Stop when your screen lights up.\n");
+    }
+
+    // auto-VM test mode: bring the VM up and blit onto matched fingerprints
+    // without needing the +use trace. For proving the pipeline in-game.
+    if (GetEnvironmentVariableA("TOSHL_AUTOVM", NULL, 0)) {
+        g_autovm = true;
+        Con_Printf("[toshl] AUTOVM: will launch the VM and stream to matched textures.\n");
     }
 }
 
@@ -166,7 +188,14 @@ extern "C" void TOSHL_DiscoverCycle(int delta) {
     glhook_cycle(delta);
     char b[96]; glhook_solo_fingerprint(b, sizeof(b));
     Con_Printf("[toshl] highlighting %s\n", b);
+    // Mirror the current selection to a file so it can be read without the
+    // console (the operator picks it up when the right screen is highlighted).
+    char path[MAX_PATH]; _snprintf(path, MAX_PATH, "%s\\toshl_current.txt", g_mod_dir);
+    FILE *f = fopen(path, "w");
+    if (f) { fprintf(f, "%s\n", b); fclose(f); }
 }
+
+extern "C" int TOSHL_IsDiscover() { return g_discover_mode ? 1 : 0; }
 
 extern "C" void TOSHL_DiscoverPrint() {
     char b[96]; glhook_solo_fingerprint(b, sizeof(b));
