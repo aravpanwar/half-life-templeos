@@ -16,5 +16,7 @@
 # halflife.wad / the map's embedded textures. Fill these in for your target
 # maps; the hashes below are PLACEHOLDERS and will not match anything.
 
-# --- c1a0 reception hall, world-map display region (first bring-up target) ---
-128x128:78a1765f6e137d6f
+# (Unused by the current build: TempleOS is drawn as a world-space quad on the
+#  surface you +use, not by hijacking a map texture. Kept for the optional
+#  texture-hijack path / discovery mode.)
+# 64x64:0000000000000000

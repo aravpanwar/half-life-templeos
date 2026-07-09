@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "gl_hook.h"
 #include "MinHook.h"
@@ -229,6 +230,9 @@ void glhook_solo_fingerprint(char *out, int out_size) {
     LeaveCriticalSection(&g_cap_lock);
 }
 
+static void scale_rgba(const uint8_t *src, int sw, int sh,
+                       uint8_t *dst, int dw, int dh); /* defined below */
+
 /* Restore the previously highlighted texture's original level-0 pixels. */
 static void discover_unpaint(void) {
     if (g_painted < 0 || g_painted >= g_cap_count || !g_orig) { g_painted = -1; return; }
@@ -245,7 +249,13 @@ static void discover_unpaint(void) {
     g_painted = -1;
 }
 
-void glhook_discover_paint(void) {
+/*
+ * Paint the current "solo" captured texture so exactly one surface is
+ * highlighted at a time. If `rgba` is non-NULL, the (scaled) live VM frame is
+ * shown on it, so discovery previews real TempleOS on each candidate; if NULL,
+ * a magenta/green checkerboard is shown instead (VM not up yet).
+ */
+void glhook_discover_frame(const uint8_t *rgba, int src_w, int src_h) {
     if (!g_discover) return;
 
     int idx = g_solo;
@@ -286,15 +296,19 @@ void glhook_discover_paint(void) {
         g_scaled = nb; g_scaled_cap = need;
     }
 
-    /* vivid magenta/green checkerboard, chunky (32px) so it reads as squares */
-    for (int y = 0; y < cap.h; y++) {
-        for (int x = 0; x < cap.w; x++) {
-            uint8_t *p = g_scaled + ((size_t)y * cap.w + x) * 4;
-            int c = ((x >> 5) ^ (y >> 5)) & 1;
-            p[0] = c ? 255 : 0;   /* R */
-            p[1] = c ? 0 : 255;   /* G */
-            p[2] = 255;           /* B */
-            p[3] = 255;           /* A */
+    if (rgba && src_w > 0 && src_h > 0) {
+        scale_rgba(rgba, src_w, src_h, g_scaled, cap.w, cap.h);
+    } else {
+        /* magenta/green checkerboard, chunky (32px) so it reads as squares */
+        for (int y = 0; y < cap.h; y++) {
+            for (int x = 0; x < cap.w; x++) {
+                uint8_t *p = g_scaled + ((size_t)y * cap.w + x) * 4;
+                int c = ((x >> 5) ^ (y >> 5)) & 1;
+                p[0] = c ? 255 : 0;   /* R */
+                p[1] = c ? 0 : 255;   /* G */
+                p[2] = 255;           /* B */
+                p[3] = 255;           /* A */
+            }
         }
     }
 
@@ -308,6 +322,8 @@ void glhook_discover_paint(void) {
     glBindTexture(GL_TEXTURE_2D, (GLuint)prev_bound);
     glPixelStorei(GL_UNPACK_ALIGNMENT, prev_align);
 }
+
+void glhook_discover_paint(void) { glhook_discover_frame(NULL, 0, 0); }
 
 /* nearest-neighbour RGBA scale */
 static void scale_rgba(const uint8_t *src, int sw, int sh,
@@ -355,6 +371,104 @@ void glhook_blit(const uint8_t *rgba, int src_w, int src_h, uint32_t serial) {
     }
     LeaveCriticalSection(&g_cap_lock);
 
+    glBindTexture(GL_TEXTURE_2D, (GLuint)prev_bound);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, prev_align);
+}
+
+/* ----------------------------------------------------- world-space quad -- */
+
+static GLuint g_quad_tex;      /* our own texture, never a map texture */
+static int    g_quad_w, g_quad_h;
+
+static void normalize3(float *v) {
+    float l = sqrtf(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+    if (l > 1e-6f) { v[0]/=l; v[1]/=l; v[2]/=l; }
+}
+static void cross3(const float *a, const float *b, float *o) {
+    o[0] = a[1]*b[2] - a[2]*b[1];
+    o[1] = a[2]*b[0] - a[0]*b[2];
+    o[2] = a[0]*b[1] - a[1]*b[0];
+}
+
+void glhook_draw_quad(const uint8_t *rgba, int w, int h,
+                      const float *origin, const float *normal,
+                      float world_w, float world_h,
+                      float off_fwd, float off_right, float off_up)
+{
+    if (!rgba || w <= 0 || h <= 0) return;
+
+    /* upload the frame into our own texture (allocate on first/size change).
+       NEAREST filtering keeps TempleOS's 640x480 pixels crisp instead of a
+       blurry upscale. */
+    if (!g_quad_tex) {
+        glGenTextures(1, &g_quad_tex);
+        glBindTexture(GL_TEXTURE_2D, g_quad_tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+        g_quad_w = g_quad_h = 0;
+    }
+
+    GLint prev_bound = 0, prev_align = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_bound);
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &prev_align);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glBindTexture(GL_TEXTURE_2D, g_quad_tex);
+    if (w != g_quad_w || h != g_quad_h) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+        g_quad_w = w; g_quad_h = h;
+    } else {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h,
+                        GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    }
+
+    /* build an in-plane basis from the surface normal */
+    float n[3] = { normal[0], normal[1], normal[2] };
+    normalize3(n);
+    float wup[3] = { 0.0f, 0.0f, 1.0f };
+    float r[3];
+    cross3(n, wup, r);
+    if (r[0]*r[0] + r[1]*r[1] + r[2]*r[2] < 1e-6f) { r[0]=1; r[1]=0; r[2]=0; }
+    normalize3(r);
+    float u[3];
+    cross3(r, n, u);
+    normalize3(u);
+
+    /* centre = hit point, offset toward the viewer (off_fwd, avoids z-fighting)
+       and shifted within the screen plane (off_right, off_up) for alignment */
+    float c[3];
+    for (int i = 0; i < 3; i++)
+        c[i] = origin[i] + n[i]*off_fwd + r[i]*off_right + u[i]*off_up;
+    float hw = world_w * 0.5f, hh = world_h * 0.5f;
+    float tl[3], tr[3], bl[3], br[3];
+    for (int i = 0; i < 3; i++) {
+        tl[i] = c[i] - r[i]*hw + u[i]*hh;
+        tr[i] = c[i] + r[i]*hw + u[i]*hh;
+        bl[i] = c[i] - r[i]*hw - u[i]*hh;
+        br[i] = c[i] + r[i]*hw - u[i]*hh;
+    }
+
+    GLboolean was_cull = glIsEnabled(GL_CULL_FACE);
+    GLboolean was_blend = glIsEnabled(GL_BLEND);
+    GLboolean was_tex = glIsEnabled(GL_TEXTURE_2D);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+    glBegin(GL_QUADS);
+        glTexCoord2f(0.0f, 0.0f); glVertex3f(tl[0], tl[1], tl[2]);
+        glTexCoord2f(1.0f, 0.0f); glVertex3f(tr[0], tr[1], tr[2]);
+        glTexCoord2f(1.0f, 1.0f); glVertex3f(br[0], br[1], br[2]);
+        glTexCoord2f(0.0f, 1.0f); glVertex3f(bl[0], bl[1], bl[2]);
+    glEnd();
+
+    if (was_cull) glEnable(GL_CULL_FACE);
+    if (was_blend) glEnable(GL_BLEND);
+    if (!was_tex) glDisable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, (GLuint)prev_bound);
     glPixelStorei(GL_UNPACK_ALIGNMENT, prev_align);
 }

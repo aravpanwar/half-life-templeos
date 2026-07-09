@@ -23,7 +23,8 @@ extern "C" {
 // ---- HL SDK surface we lean on. These three helpers are implemented in the
 //      SDK-side glue (toshl_glue.cpp), which owns all direct engine access.
 extern "C" void  Con_Printf(const char *fmt, ...);   // wraps gEngfuncs->Con_Printf
-extern "C" int   TraceMonitorInFront(float max_dist, float hit_uv[2]); // see .md
+extern "C" int   TOSHL_AimSurface(float max_dist, float out_origin[3], float out_normal[3]);
+extern "C" void  TOSHL_QuadParams(float *size, float *fwd, float *right, float *up);
 extern "C" void  LockPlayerMovement(int locked); // suppresses CL_CreateMove
 
 // entry points defined below, referenced across functions
@@ -42,6 +43,11 @@ static int           g_fb_w, g_fb_h;
 static char          g_mod_dir[MAX_PATH];
 static bool          g_discover_mode;    // TOSHL_DISCOVER=1: highlight screens
 static bool          g_autovm;           // TOSHL_AUTOVM=1: start VM, blit, no +use
+
+static bool          g_want_enter;       // +use requested; handled in OnRedraw
+static float         g_scr_origin[3];    // frozen screen centre (trace hit)
+static float         g_scr_normal[3];    // frozen screen normal
+static float         g_quad_units = 26.0f; // quad width in game units (4:3)
 
 // -------------------------------------------------------------- helpers --
 
@@ -76,27 +82,72 @@ static bool ensure_vm_and_rfb() {
 // -------------------------------------------------- per-frame rendering --
 // Call from HUD_Redraw (context current). Uploads the latest VM frame into
 // every captured monitor texture.
-extern "C" void TOSHL_OnRedraw() {
-    if (g_discover_mode) { glhook_discover_paint(); return; }
+// One non-blocking connect attempt per call (loopback refuses instantly while
+// QEMU is still booting, so this never stalls the frame). Launches the VM on
+// first call. Returns true once the RFB pump is live.
+static bool try_connect_vm_once() {
+    if (g_rfb) return true;
+    if (!vm_is_running()) vm_launch(g_mod_dir, VNC_DISPLAY);
+    rfb_client_t *c = rfb_connect(VM_HOST, VNC_PORT);
+    if (!c) return false;
+    g_rfb = c;
+    rfb_get_size(g_rfb, &g_fb_w, &g_fb_h);
+    rfb_start(g_rfb);
+    Con_Printf("[toshl] VM online at %dx%d.\n", g_fb_w, g_fb_h);
+    return true;
+}
 
-    // AUTOVM: lazily bring up the VM (no +use needed). One non-blocking
-    // connect attempt per frame; loopback refuses instantly while QEMU boots.
-    if (g_autovm && !g_rfb) {
-        if (!vm_is_running()) vm_launch(g_mod_dir, VNC_DISPLAY);
-        rfb_client_t *c = rfb_connect(VM_HOST, VNC_PORT);
-        if (c) {
-            g_rfb = c;
-            rfb_get_size(g_rfb, &g_fb_w, &g_fb_h);
-            rfb_start(g_rfb);
-            Con_Printf("[toshl] VM online at %dx%d (autovm)\n", g_fb_w, g_fb_h);
+// HUD pass. Handles VM housekeeping and the deferred +use enter. The actual
+// TempleOS drawing happens in TOSHL_DrawWorld (world pass). We do NOT blit onto
+// map textures here anymore: that smeared, because GoldSrc shares/tiles
+// textures. The quad in TOSHL_DrawWorld uses our own texture instead.
+extern "C" void TOSHL_OnRedraw() {
+    if (g_discover_mode) {
+        try_connect_vm_once();
+        if (g_rfb) {
+            uint32_t serial;
+            const uint8_t *frame = rfb_acquire_frame(g_rfb, &serial);
+            if (frame) { glhook_discover_frame(frame, g_fb_w, g_fb_h); rfb_release_frame(g_rfb); }
+            else glhook_discover_paint();
+        } else {
+            glhook_discover_paint();
         }
+        return;
     }
 
-    if (!g_rfb) return;
+    // Keep the VM warm so pressing use is instant.
+    try_connect_vm_once();
+
+    // Resolve a pending +use here (a clean context, unlike CL_CreateMove) so
+    // the trace's PM-state push/pop is balanced.
+    if (g_want_enter && !g_in_terminal) {
+        g_want_enter = false;
+        float o[3], nrm[3];
+        if (TOSHL_AimSurface(96.0f, o, nrm)) {
+            memcpy(g_scr_origin, o, sizeof(o));
+            memcpy(g_scr_normal, nrm, sizeof(nrm));
+            g_in_terminal = true;
+            LockPlayerMovement(1);
+            Con_Printf("[toshl] terminal engaged. F10 to exit.\n");
+        } else {
+            Con_Printf("[toshl] no surface in front of you.\n");
+        }
+    }
+}
+
+// World pass (HUD_DrawTransparentTriangles): draw the live TempleOS frame as a
+// quad pinned to the surface the player engaged. Our own texture, so it never
+// smears onto the map's shared textures.
+extern "C" void TOSHL_DrawWorld() {
+    if (!g_in_terminal || !g_rfb) return;
     uint32_t serial;
     const uint8_t *frame = rfb_acquire_frame(g_rfb, &serial);
     if (frame) {
-        glhook_blit(frame, g_fb_w, g_fb_h, serial);
+        float size = g_quad_units, fwd = 1.0f, sr = 0.0f, su = 0.0f;
+        TOSHL_QuadParams(&size, &fwd, &sr, &su);
+        if (size <= 0.0f) size = g_quad_units;
+        glhook_draw_quad(frame, g_fb_w, g_fb_h, g_scr_origin, g_scr_normal,
+                         size, size * 3.0f / 4.0f, fwd, sr, su);
         rfb_release_frame(g_rfb);
     }
 }
@@ -132,13 +183,10 @@ extern "C" void TOSHL_HandleMouse(float uv_x, float uv_y, int buttons) {
 
 // ------------------------------------------------------- enter / leave --
 
+// Called on the +use rising edge from CL_CreateMove. We only set a flag here;
+// the trace + enter happen in TOSHL_OnRedraw, off the movement path.
 extern "C" void TOSHL_TryEnterTerminal() {
-    float uv[2];
-    if (!TraceMonitorInFront(96.0f, uv)) return; // not looking at a monitor
-    if (!ensure_vm_and_rfb()) return;
-    g_in_terminal = true;
-    LockPlayerMovement(1);
-    Con_Printf("[toshl] entering terminal. F10 to exit.\n");
+    if (!g_in_terminal) g_want_enter = true;
 }
 
 extern "C" void TOSHL_ExitTerminal() {

@@ -59,8 +59,24 @@ int  glhook_capture_count(void);
  *   - glhook_solo_fingerprint() writes the current selection's "WxH:hash"
  *     (plus an index) into `out`, ready to paste into monitor_fingerprints.txt.
  */
+/*
+ * Draw the RGBA frame as a flat quad in the 3D world, centred at `origin`,
+ * facing along `normal` (a surface normal from a trace), sized world_w x
+ * world_h game units. Uses our OWN GL texture, so it never touches or smears
+ * the map's shared textures. Call from HUD_DrawTransparentTriangles (world
+ * matrices are current there).
+ */
+void glhook_draw_quad(const uint8_t *rgba, int w, int h,
+                      const float *origin, const float *normal,
+                      float world_w, float world_h,
+                      float off_fwd, float off_right, float off_up);
+
 void glhook_discover_enable(bool on);
 void glhook_discover_paint(void);
+/* Like discover_paint but shows the (scaled) live VM frame on the solo
+   texture, so discovery previews real TempleOS on each candidate. Pass NULL
+   to fall back to the checkerboard. */
+void glhook_discover_frame(const uint8_t *rgba, int src_w, int src_h);
 void glhook_cycle(int delta);
 void glhook_solo_fingerprint(char *out, int out_size);
 
