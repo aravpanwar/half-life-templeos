@@ -26,7 +26,12 @@ extern "C" void  Con_Printf(const char *fmt, ...);   // wraps gEngfuncs->Con_Pri
 extern "C" int   TOSHL_AimSurface(float max_dist, float out_origin[3], float out_normal[3]);
 extern "C" void  TOSHL_QuadParams(float *size, float *fwd, float *right, float *up, float *aspect);
 extern "C" int   TOSHL_Freewalk(void);
+extern "C" int   TOSHL_Fixed(void);
 extern "C" void  LockPlayerMovement(int locked); // suppresses CL_CreateMove
+
+// Baked control-room monitor placement in c1a0 (captured from tuning).
+static const float FIXED_ORIGIN[3] = { -312.03f, 206.06f, -160.66f };
+static const float FIXED_NORMAL[3] = { -1.0f, 0.0f, 0.0f };
 
 // entry points defined below, referenced across functions
 extern "C" void TOSHL_ExitTerminal();
@@ -101,6 +106,17 @@ static bool try_connect_vm_once() {
     g_connect_tick = GetTickCount();
     g_dismiss_count = 0;
     Con_Printf("[toshl] VM online at %dx%d.\n", g_fb_w, g_fb_h);
+
+    // Fixed placement: lock the panel onto the baked control-room monitor so
+    // TempleOS is just there when you arrive (c1a0). +use toggles typing.
+    if (TOSHL_Fixed()) {
+        memcpy(g_scr_origin, FIXED_ORIGIN, sizeof(FIXED_ORIGIN));
+        memcpy(g_scr_normal, FIXED_NORMAL, sizeof(FIXED_NORMAL));
+        g_in_terminal = true;
+        g_freewalk_active = true;
+        LockPlayerMovement(0);
+        Con_Printf("[toshl] fixed: TempleOS locked to the control-room monitor.\n");
+    }
     return true;
 }
 
@@ -141,10 +157,29 @@ extern "C" void TOSHL_OnRedraw() {
     // already shown (freewalk lets +use re-aim the panel).
     if (g_want_enter) {
         g_want_enter = false;
+
+        // Fixed mode: +use just toggles typing at the locked panel (no re-aim).
+        if (TOSHL_Fixed() && g_in_terminal) {
+            g_freewalk_active = !g_freewalk_active;
+            LockPlayerMovement(g_freewalk_active ? 0 : 1);
+            Con_Printf(g_freewalk_active
+                ? "[toshl] walking; panel stays put. Press use to type.\n"
+                : "[toshl] typing into TempleOS. Press use or F10 to stop.\n");
+            return;
+        }
+
         float o[3], nrm[3];
         if (TOSHL_AimSurface(96.0f, o, nrm)) {
             memcpy(g_scr_origin, o, sizeof(o));
             memcpy(g_scr_normal, nrm, sizeof(nrm));
+            // Record the exact spot so a fixed placement can be baked in.
+            char pp[MAX_PATH]; _snprintf(pp, MAX_PATH, "%s\\toshl_place.txt", g_mod_dir);
+            FILE *pf = fopen(pp, "w");
+            if (pf) {
+                fprintf(pf, "origin %.2f %.2f %.2f\nnormal %.4f %.4f %.4f\n",
+                        o[0], o[1], o[2], nrm[0], nrm[1], nrm[2]);
+                fclose(pf);
+            }
             g_in_terminal = true;
             g_freewalk_active = (TOSHL_Freewalk() != 0);
             if (g_freewalk_active) {
