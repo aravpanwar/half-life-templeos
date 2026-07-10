@@ -1,114 +1,121 @@
 # TempleOS-HL1
 
-Run a full, live [TempleOS](https://templeos.org) instance on the in-game
-computer monitors of **Half-Life 1** (GoldSrc). Walk up to a terminal, press
-use, and you're dropped into Terry Davis's divine 640x480 16-color operating
-system, running for real. Not a video, not a mockup. HolyC at your
-fingertips, inside Black Mesa.
+Run a full, live [TempleOS](https://templeos.org) instance on a working
+computer monitor inside **Half-Life 1** (GoldSrc). Walk up to the terminal,
+press use, and you're driving Terry Davis's 640x480 16-color operating system,
+running for real inside Black Mesa. Not a video, not a mockup. HolyC at your
+fingertips.
 
-> **A tribute.** TempleOS is the life's work of Terry A. Davis. It's public
-> domain by his wish. This project runs it unmodified and unmocked.
+> **A tribute.** TempleOS is the life's work of Terry A. Davis, released into
+> the public domain by his wish.
 
 ---
 
 ## Read this first: VAC / online play
 
-This mod inline-hooks OpenGL calls inside `hl.exe`. **Doing that while
-connected to a VAC-secured server can get your account banned.** This is a
-**singleplayer / `-insecure` / local-listen-server toy only.** Do not use it
+This mod ships a custom `client.dll` that draws into Half-Life's OpenGL scene
+(and hooks `glTexImage2D` for its discovery tool). **Running modified game code
+while connected to a VAC-secured server can get your account banned.** This is
+a **singleplayer / `-insecure` / local-listen-server toy only.** Do not use it
 on secure multiplayer servers. You've been warned in bold.
 
 ---
 
-## How it actually works
+## How it works
 
-TempleOS is 64-bit; `hl.exe` is a 32-bit process. You can't embed the OS in
-the game. So instead:
+TempleOS is 64-bit and `hl.exe` is a 32-bit process, so you can't embed the OS
+in the game. Instead it runs beside the game and is streamed in:
 
 ```
- QEMU (64-bit child process)              Half-Life client.dll (this mod)
- ┌───────────────────────────┐   VNC/RFB  ┌────────────────────────────────┐
- │ TempleOS, headless        │  loopback  │ tiny RFB client (Raw encoding) │
- │ -vnc 127.0.0.1:0          │◄──────────►│ MinHook on glTexImage2D        │
- │ public-domain ISO         │            │ blits framebuffer → monitor tex│
- └───────────────────────────┘            │ +use = terminal mode, kb/mouse │
-                                          └────────────────────────────────┘
+ QEMU (64-bit child process)               Half-Life client.dll (this mod)
+ ┌───────────────────────────┐   VNC/RFB   ┌────────────────────────────────┐
+ │ TempleOS live CD, headless│  loopback   │ tiny RFB client (Raw encoding) │
+ │ -vnc 127.0.0.1:0          │◄───────────►│ streams 640x480 RGBA per frame │
+ │ public-domain ISO         │             │ draws it as a quad on a monitor│
+ └───────────────────────────┘             │ +use = drive it, keyboard to VM│
+                                           └────────────────────────────────┘
 ```
 
-1. **VM**: QEMU boots TempleOS headless with a loopback VNC server.
-2. **Bridge**: the mod speaks just enough RFB (RFC 6143, Raw encoding, no
-   auth) to stream the framebuffer as RGBA every frame.
-3. **Injection (Path B)**: MinHook intercepts the engine's `glTexImage2D`,
-   fingerprints monitor screen textures as they upload, then
-   `glTexSubImage2D`s the live TempleOS image into them each frame. Every
-   monitor in the map showing that texture becomes a real screen.
-4. **Interaction**: `+use` while looking at a monitor enters *terminal
-   mode*: movement locks, keyboard/mouse route to the VM over RFB. **F10**
-   exits.
+1. **VM.** QEMU boots the TempleOS live-CD ISO headless with a loopback VNC
+   server. The mod auto-answers the boot prompts so it lands on the desktop.
+2. **Bridge.** A background thread speaks just enough RFB (RFC 6143, Raw
+   encoding, no auth) to pull TempleOS's framebuffer as RGBA every frame.
+3. **Render.** From the client's world-draw pass the mod uploads that frame to
+   its own GL texture and draws it as a flat quad pinned to a monitor surface.
+   It uses the mod's own texture and geometry, so it never touches the map's
+   shared, tiled textures. The screen stays crisp with zero bleed onto walls.
+4. **Interaction.** Press use at the terminal to lock in and type; the keyboard
+   routes straight to TempleOS over RFB. A zoom key blows the panel up
+   fullscreen so it is readable, and F10 steps back out.
+
+By default the panel auto-locks onto a specific Black Mesa control-room monitor
+(in `c1a0`). You can also aim at any surface and drop it there.
+
+## Controls
+
+Bind a key to `toshl_zoom` in the console (for example `bind z toshl_zoom`),
+then:
+
+| Key / command         | What it does                                     |
+|-----------------------|--------------------------------------------------|
+| use (E)               | enter / leave the terminal (lock and type)       |
+| z                     | toggle the fullscreen zoom                        |
+| F10                   | exit the terminal                                |
+| `toshl_size N`        | panel width in game units                        |
+| `toshl_aspect N`      | panel height / width (0.75 = 4:3)                |
+| `toshl_shiftr N`      | slide the panel right (negative = left)          |
+| `toshl_shiftu N`      | slide the panel up (negative = down)             |
+| `toshl_fwd N`         | push the panel off the wall toward you           |
+| `toshl_fixed 0`       | disable the baked spot; aim and press use instead|
+| `toshl_freewalk 0`    | lock movement and type, instead of place-and-walk|
 
 ## Repo layout
 
 ```
 src/rfb/         minimal RFB/VNC client (Raw encoding), no external deps
-src/glhook/      MinHook-based glTexImage2D hijack + fingerprint + blit
-src/vmproc/      QEMU launcher (Job Object: VM dies with the game)
-src/client/      terminal-mode orchestrator + keymap + SDK wiring notes
+src/glhook/      GL rendering: world-space quad + fullscreen zoom (+ discovery)
+src/vmproc/      QEMU launcher (Job Object: the VM dies with the game)
+src/client/      orchestrator: RFB to render, placement, input, keymap
 tools/           rfb_probe: prove the VM pipeline works before touching HL
 vm/              setup script; TempleOS.iso + qemu_path.txt live here
-monitor_fingerprints.txt   which textures become screens (see discovery)
 ```
 
 ## Build
 
-Prerequisites: Half-Life SDK, a 32-bit MSVC toolchain, QEMU, CMake, and the
-MinHook submodule.
+Prerequisites: the Half-Life SDK (a VS2019-buildable `cl_dll`), a 32-bit MSVC
+toolchain, QEMU, and the MinHook submodule.
 
 ```sh
 git clone --recursive https://github.com/aravpanwar/half-life-templeos
 cd half-life-templeos
+#   git submodule update --init   # if you forgot --recursive
 
-# if you cloned without --recursive:
-#   git submodule update --init
-
-# 1. VM + ISO
+# fetch the TempleOS ISO and point the mod at your QEMU install
 cd vm && powershell -ExecutionPolicy Bypass -File setup.ps1 && cd ..
 
-# 2. sanity-check the pipeline with NO game involved
+# sanity-check the VM pipeline with NO game involved
 cmake -B build -A Win32
 cmake --build build --config Release --target rfb_probe
-#   (launch qemu per setup.ps1's printed command, then:)
 build\Release\rfb_probe.exe 127.0.0.1 5900 frame.ppm   # open frame.ppm
-
-# 3. build toshl_core and splice into the HL SDK cl_dll
-#    (see the SDK WIRING block in src/client/terminal_mode.cpp)
 ```
 
-## Finding your monitor textures (discovery mode)
+The mod's sources compile into the Half-Life SDK's client library. See the SDK
+wiring notes in `src/client/terminal_mode.cpp`.
 
-The screens are hijacked by texture fingerprint, so you tell the mod which
-textures to take over:
+## Roadmap
 
-1. Set env var `TOSHL_LOG=1` before launching.
-2. Load a map, look at the monitor you want.
-3. Open `toshl_uploads.log`, find the screen texture (usually 64x64 or
-   128x128), copy its `WxH:hash` line into `monitor_fingerprints.txt`.
-4. Restart the map. That monitor is now TempleOS.
-
-## Roadmap ideas
-
-- CRT/scanline shader pass on the monitor quad
-- Persist VM state into HL save games (serialize a QEMU savestate alongside)
-- Per-map independent VMs (RAM permitting)
-- PC-speaker → DirectSound so you hear the hymns
-- Multiple distinct fingerprints → different screens run different programs
+- Persist a writable TempleOS data drive so files survive between sessions
+- CRT / scanline shader pass on the panel
+- PC-speaker to DirectSound so you hear the hymns
+- Terminals placed in more maps
 
 ## Licensing
 
 - **This mod's code:** see [LICENSE](LICENSE).
 - **TempleOS:** public domain (Terry A. Davis). The ISO may be redistributed.
 - **QEMU:** GPL, *not bundled*. Kept as a separate process the mod talks to
-  over a socket, deliberately, so nothing GPL is linked into the HL SDK-
-  derived DLLs. You point the mod at your own QEMU install.
+  over a socket, so nothing GPL is linked into the HL SDK-derived DLLs. You
+  point the mod at your own QEMU install.
 - **MinHook:** BSD-2, SDK-compatible.
 - **Half-Life:** you must own it; assets are not distributed here.
 
