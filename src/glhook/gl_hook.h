@@ -71,6 +71,13 @@ void glhook_draw_quad(const uint8_t *rgba, int w, int h,
                       float world_w, float world_h,
                       float off_fwd, float off_right, float off_up);
 
+/*
+ * Draw the RGBA frame as a 2D screen-space panel centred over the view,
+ * covering `coverage` (0..1) of the screen and preserving the frame's aspect.
+ * For the zoom / "sit at the terminal" mode. Call from HUD_Redraw (2D pass).
+ */
+void glhook_draw_screen(const uint8_t *rgba, int w, int h, float coverage);
+
 void glhook_discover_enable(bool on);
 void glhook_discover_paint(void);
 /* Like discover_paint but shows the (scaled) live VM frame on the solo

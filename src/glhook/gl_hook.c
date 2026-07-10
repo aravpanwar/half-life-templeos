@@ -459,16 +459,89 @@ void glhook_draw_quad(const uint8_t *rgba, int w, int h,
     glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
+    /* U is flipped (1 on the left corners) because the in-plane "right" basis
+       derived from the surface normal points to the viewer's left; without
+       this, TempleOS renders mirrored. */
     glBegin(GL_QUADS);
-        glTexCoord2f(0.0f, 0.0f); glVertex3f(tl[0], tl[1], tl[2]);
-        glTexCoord2f(1.0f, 0.0f); glVertex3f(tr[0], tr[1], tr[2]);
-        glTexCoord2f(1.0f, 1.0f); glVertex3f(br[0], br[1], br[2]);
-        glTexCoord2f(0.0f, 1.0f); glVertex3f(bl[0], bl[1], bl[2]);
+        glTexCoord2f(1.0f, 0.0f); glVertex3f(tl[0], tl[1], tl[2]);
+        glTexCoord2f(0.0f, 0.0f); glVertex3f(tr[0], tr[1], tr[2]);
+        glTexCoord2f(0.0f, 1.0f); glVertex3f(br[0], br[1], br[2]);
+        glTexCoord2f(1.0f, 1.0f); glVertex3f(bl[0], bl[1], bl[2]);
     glEnd();
 
     if (was_cull) glEnable(GL_CULL_FACE);
     if (was_blend) glEnable(GL_BLEND);
     if (!was_tex) glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)prev_bound);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, prev_align);
+}
+
+void glhook_draw_screen(const uint8_t *rgba, int w, int h, float coverage) {
+    if (!rgba || w <= 0 || h <= 0) return;
+    if (coverage <= 0.0f) coverage = 0.92f;
+
+    if (!g_quad_tex) {
+        glGenTextures(1, &g_quad_tex);
+        glBindTexture(GL_TEXTURE_2D, g_quad_tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+        g_quad_w = g_quad_h = 0;
+    }
+
+    GLint prev_bound = 0, prev_align = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_bound);
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &prev_align);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glBindTexture(GL_TEXTURE_2D, g_quad_tex);
+    if (w != g_quad_w || h != g_quad_h) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+        g_quad_w = w; g_quad_h = h;
+    } else {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    }
+
+    GLint vp[4];
+    glGetIntegerv(GL_VIEWPORT, vp);
+    float sw = (float)vp[2], sh = (float)vp[3];
+    if (sw <= 0 || sh <= 0) { glBindTexture(GL_TEXTURE_2D, (GLuint)prev_bound); return; }
+
+    /* fit the frame inside `coverage` of the screen, preserving w:h */
+    float tw = sw * coverage;
+    float th = tw * (float)h / (float)w;
+    if (th > sh * coverage) { th = sh * coverage; tw = th * (float)w / (float)h; }
+    float x0 = (sw - tw) * 0.5f, y0 = (sh - th) * 0.5f;
+    float x1 = x0 + tw, y1 = y0 + th;
+
+    glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
+    glOrtho(0.0, sw, sh, 0.0, -1.0, 1.0);          /* y-down screen space */
+    glMatrixMode(GL_MODELVIEW);  glPushMatrix(); glLoadIdentity();
+
+    GLboolean was_depth = glIsEnabled(GL_DEPTH_TEST);
+    GLboolean was_cull  = glIsEnabled(GL_CULL_FACE);
+    GLboolean was_blend = glIsEnabled(GL_BLEND);
+    GLboolean was_tex   = glIsEnabled(GL_TEXTURE_2D);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+    glBegin(GL_QUADS);
+        glTexCoord2f(0.0f, 0.0f); glVertex2f(x0, y0);
+        glTexCoord2f(1.0f, 0.0f); glVertex2f(x1, y0);
+        glTexCoord2f(1.0f, 1.0f); glVertex2f(x1, y1);
+        glTexCoord2f(0.0f, 1.0f); glVertex2f(x0, y1);
+    glEnd();
+
+    glMatrixMode(GL_PROJECTION); glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);  glPopMatrix();
+    if (was_depth) glEnable(GL_DEPTH_TEST);
+    if (was_cull)  glEnable(GL_CULL_FACE);
+    if (was_blend) glEnable(GL_BLEND);
+    if (!was_tex)  glDisable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, (GLuint)prev_bound);
     glPixelStorei(GL_UNPACK_ALIGNMENT, prev_align);
 }

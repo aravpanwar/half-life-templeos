@@ -24,7 +24,8 @@ extern "C" {
 //      SDK-side glue (toshl_glue.cpp), which owns all direct engine access.
 extern "C" void  Con_Printf(const char *fmt, ...);   // wraps gEngfuncs->Con_Printf
 extern "C" int   TOSHL_AimSurface(float max_dist, float out_origin[3], float out_normal[3]);
-extern "C" void  TOSHL_QuadParams(float *size, float *fwd, float *right, float *up);
+extern "C" void  TOSHL_QuadParams(float *size, float *fwd, float *right, float *up, float *aspect);
+extern "C" int   TOSHL_Freewalk(void);
 extern "C" void  LockPlayerMovement(int locked); // suppresses CL_CreateMove
 
 // entry points defined below, referenced across functions
@@ -45,6 +46,8 @@ static bool          g_discover_mode;    // TOSHL_DISCOVER=1: highlight screens
 static bool          g_autovm;           // TOSHL_AUTOVM=1: start VM, blit, no +use
 
 static bool          g_want_enter;       // +use requested; handled in OnRedraw
+static bool          g_freewalk_active;   // placed-but-walking (vs locked typing)
+static bool          g_zoom;              // fullscreen zoom panel active
 static float         g_scr_origin[3];    // frozen screen centre (trace hit)
 static float         g_scr_normal[3];    // frozen screen normal
 static float         g_quad_units = 26.0f; // quad width in game units (4:3)
@@ -119,16 +122,24 @@ extern "C" void TOSHL_OnRedraw() {
     try_connect_vm_once();
 
     // Resolve a pending +use here (a clean context, unlike CL_CreateMove) so
-    // the trace's PM-state push/pop is balanced.
-    if (g_want_enter && !g_in_terminal) {
+    // the trace's PM-state push/pop is balanced. Allowed to re-place while
+    // already shown (freewalk lets +use re-aim the panel).
+    if (g_want_enter) {
         g_want_enter = false;
         float o[3], nrm[3];
         if (TOSHL_AimSurface(96.0f, o, nrm)) {
             memcpy(g_scr_origin, o, sizeof(o));
             memcpy(g_scr_normal, nrm, sizeof(nrm));
             g_in_terminal = true;
-            LockPlayerMovement(1);
-            Con_Printf("[toshl] terminal engaged. F10 to exit.\n");
+            g_freewalk_active = (TOSHL_Freewalk() != 0);
+            if (g_freewalk_active) {
+                LockPlayerMovement(0); // stay free to walk and judge
+                Con_Printf("[toshl] placed. Walk around to judge it. F10 clears it,\n");
+                Con_Printf("[toshl] 'toshl_freewalk 0' then re-place to type into it.\n");
+            } else {
+                LockPlayerMovement(1);
+                Con_Printf("[toshl] terminal engaged. F10 to exit.\n");
+            }
         } else {
             Con_Printf("[toshl] no surface in front of you.\n");
         }
@@ -143,11 +154,30 @@ extern "C" void TOSHL_DrawWorld() {
     uint32_t serial;
     const uint8_t *frame = rfb_acquire_frame(g_rfb, &serial);
     if (frame) {
-        float size = g_quad_units, fwd = 1.0f, sr = 0.0f, su = 0.0f;
-        TOSHL_QuadParams(&size, &fwd, &sr, &su);
+        float size = g_quad_units, fwd = 1.0f, sr = 0.0f, su = 0.0f, aspect = 0.75f;
+        TOSHL_QuadParams(&size, &fwd, &sr, &su, &aspect);
         if (size <= 0.0f) size = g_quad_units;
+        if (aspect <= 0.0f) aspect = 0.75f;
         glhook_draw_quad(frame, g_fb_w, g_fb_h, g_scr_origin, g_scr_normal,
-                         size, size * 3.0f / 4.0f, fwd, sr, su);
+                         size, size * aspect, fwd, sr, su);
+        rfb_release_frame(g_rfb);
+    }
+}
+
+// Toggle the fullscreen zoom panel (bound to the toshl_zoom console command).
+extern "C" void TOSHL_ToggleZoom() {
+    g_zoom = !g_zoom;
+    Con_Printf("[toshl] zoom %s.\n", g_zoom ? "ON" : "off");
+}
+
+// 2D pass (HUD_Redraw): when zoomed, draw TempleOS as a big centred panel so
+// it is legible from any distance, even if you can't walk up to the monitor.
+extern "C" void TOSHL_DrawOverlay() {
+    if (!g_zoom || !g_rfb) return;
+    uint32_t serial;
+    const uint8_t *frame = rfb_acquire_frame(g_rfb, &serial);
+    if (frame) {
+        glhook_draw_screen(frame, g_fb_w, g_fb_h, 0.92f);
         rfb_release_frame(g_rfb);
     }
 }
@@ -159,14 +189,18 @@ extern "C" bool TOSHL_HandleKey(UINT msg, WPARAM wp, LPARAM lp) {
     if (!g_in_terminal || !g_rfb) return false;
 
     bool down = (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN);
-    bool up   = (msg == WM_KEYUP   || msg == WM_SYSKEYUP);
-    if (!down && !up) return true; // swallow char msgs while in terminal
+
+    // F10 clears/exits in any mode.
+    if (down && wp == VK_F10) { TOSHL_ExitTerminal(); return true; }
+
+    // Freewalk: the panel is only placed for judging, so let the engine keep
+    // the keyboard (WASD, ~ console, etc.). Only F10 above is intercepted.
+    if (g_freewalk_active) return false;
+
+    bool up = (msg == WM_KEYUP || msg == WM_SYSKEYUP);
+    if (!down && !up) return true; // swallow char msgs while typing
 
     if (wp == VK_SHIFT || wp == VK_LSHIFT || wp == VK_RSHIFT) g_shift_down = down;
-
-    // Dedicated escape key to LEAVE the terminal (F10 by convention; ESC is
-    // sent through to TempleOS since it's meaningful there).
-    if (wp == VK_F10 && down) { TOSHL_ExitTerminal(); return true; }
 
     uint32_t ks = vk_to_keysym(wp, g_shift_down);
     if (ks) rfb_send_key(g_rfb, ks, down);
@@ -184,14 +218,16 @@ extern "C" void TOSHL_HandleMouse(float uv_x, float uv_y, int buttons) {
 // ------------------------------------------------------- enter / leave --
 
 // Called on the +use rising edge from CL_CreateMove. We only set a flag here;
-// the trace + enter happen in TOSHL_OnRedraw, off the movement path.
+// the trace + enter happen in TOSHL_OnRedraw, off the movement path. Setting it
+// unconditionally lets +use re-aim the panel while in freewalk mode.
 extern "C" void TOSHL_TryEnterTerminal() {
-    if (!g_in_terminal) g_want_enter = true;
+    g_want_enter = true;
 }
 
 extern "C" void TOSHL_ExitTerminal() {
     if (!g_in_terminal) return;
     g_in_terminal = false;
+    g_freewalk_active = false;
     g_shift_down = false;
     LockPlayerMovement(0);
 }
@@ -244,6 +280,8 @@ extern "C" void TOSHL_DiscoverCycle(int delta) {
 }
 
 extern "C" int TOSHL_IsDiscover() { return g_discover_mode ? 1 : 0; }
+
+extern "C" int TOSHL_InTerminal() { return g_in_terminal ? 1 : 0; }
 
 extern "C" void TOSHL_DiscoverPrint() {
     char b[96]; glhook_solo_fingerprint(b, sizeof(b));
