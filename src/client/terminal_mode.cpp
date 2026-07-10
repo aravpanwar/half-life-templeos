@@ -154,7 +154,7 @@ extern "C" void TOSHL_DrawWorld() {
     uint32_t serial;
     const uint8_t *frame = rfb_acquire_frame(g_rfb, &serial);
     if (frame) {
-        float size = g_quad_units, fwd = 0.25f, sr = 0.0f, su = 0.6f, aspect = 0.85f;
+        float size = g_quad_units, fwd = 0.1f, sr = 0.0f, su = 0.6f, aspect = 0.85f;
         TOSHL_QuadParams(&size, &fwd, &sr, &su, &aspect);
         if (size <= 0.0f) size = g_quad_units;
         if (aspect <= 0.0f) aspect = 0.85f;
