@@ -48,6 +48,8 @@ static bool          g_autovm;           // TOSHL_AUTOVM=1: start VM, blit, no +
 static bool          g_want_enter;       // +use requested; handled in OnRedraw
 static bool          g_freewalk_active;   // placed-but-walking (vs locked typing)
 static bool          g_zoom;              // fullscreen zoom panel active
+static DWORD         g_connect_tick;      // GetTickCount at VM connect
+static bool          g_prompt_dismissed;  // auto-answered the live-CD install ask
 static float         g_scr_origin[3];    // frozen screen centre (trace hit)
 static float         g_scr_normal[3];    // frozen screen normal
 static float         g_quad_units = 32.0f; // quad width in game units (fallback)
@@ -96,6 +98,8 @@ static bool try_connect_vm_once() {
     g_rfb = c;
     rfb_get_size(g_rfb, &g_fb_w, &g_fb_h);
     rfb_start(g_rfb);
+    g_connect_tick = GetTickCount();
+    g_prompt_dismissed = false;
     Con_Printf("[toshl] VM online at %dx%d.\n", g_fb_w, g_fb_h);
     return true;
 }
@@ -120,6 +124,15 @@ extern "C" void TOSHL_OnRedraw() {
 
     // Keep the VM warm so pressing use is instant.
     try_connect_vm_once();
+
+    // Auto-answer the live-CD "Install onto hard drive (y/n)?" prompt with 'N'
+    // ~10s after boot, so the VM lands on the full desktop by itself.
+    if (g_rfb && !g_prompt_dismissed && (GetTickCount() - g_connect_tick) > 10000) {
+        rfb_send_key(g_rfb, 'n', true);      rfb_send_key(g_rfb, 'n', false);
+        rfb_send_key(g_rfb, 0xFF0D, true);   rfb_send_key(g_rfb, 0xFF0D, false); // Return
+        g_prompt_dismissed = true;
+        Con_Printf("[toshl] auto-dismissed the TempleOS install prompt.\n");
+    }
 
     // Resolve a pending +use here (a clean context, unlike CL_CreateMove) so
     // the trace's PM-state push/pop is balanced. Allowed to re-place while

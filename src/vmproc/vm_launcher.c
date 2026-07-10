@@ -26,10 +26,12 @@ bool vm_launch(const char *mod_dir, int vnc_display) {
     }
 
     /*
-     * -snapshot        : never persist writes; every launch is a clean temple
-     * -vnc ...,lossy=off is default; loopback only, no auth needed
+     * Boot the TempleOS live CD (installing to a QEMU hard disk and booting
+     * that back is unreliable: TempleOS's HDD boot loader hangs under SeaBIOS).
+     * The live CD reliably reaches the 640x480 desktop; the orchestrator
+     * auto-answers 'N' to the one-time install prompt (see terminal_mode).
+     * -snapshot        : ephemeral; a game crash can't corrupt the media
      * -rtc base=localtime : TempleOS shows the clock; make it right
-     * -audiodev none   : PC-speaker hymns silenced (wire to dsound if brave)
      */
     _snprintf(iso, sizeof(iso), "%s\\vm\\TempleOS.iso", mod_dir);
 
