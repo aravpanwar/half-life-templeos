@@ -27,6 +27,7 @@ extern "C" int   TOSHL_AimSurface(float max_dist, float out_origin[3], float out
 extern "C" void  TOSHL_QuadParams(float *size, float *fwd, float *right, float *up, float *aspect);
 extern "C" int   TOSHL_Freewalk(void);
 extern "C" int   TOSHL_Fixed(void);
+extern "C" int   TOSHL_PlayerNear(float x, float y, float z, float radius);
 extern "C" void  LockPlayerMovement(int locked); // suppresses CL_CreateMove
 
 // Baked control-room monitor placement in c1a0 (captured from tuning).
@@ -35,6 +36,7 @@ static const float FIXED_NORMAL[3] = { -1.0f, 0.0f, 0.0f };
 
 // entry points defined below, referenced across functions
 extern "C" void TOSHL_ExitTerminal();
+extern "C" void TOSHL_ToggleZoom();
 
 // ---------------------------------------------------------------- state --
 
@@ -60,6 +62,30 @@ static float         g_scr_normal[3];    // frozen screen normal
 static float         g_quad_units = 32.0f; // quad width in game units (fallback)
 
 // -------------------------------------------------------------- helpers --
+
+// Movement is locked (and the aim dot hidden) whenever the player is driving
+// TempleOS: typing at the panel, or zoomed fullscreen.
+static void update_lock() {
+    int lock = (g_zoom || (g_in_terminal && !g_freewalk_active)) ? 1 : 0;
+    LockPlayerMovement(lock);
+}
+
+// Toggle "typing at the panel". Starting to type requires standing near the
+// terminal; stopping is always allowed.
+static void toshl_toggle_typing() {
+    if (!g_in_terminal) return;
+    if (g_freewalk_active) {
+        if (!TOSHL_PlayerNear(g_scr_origin[0], g_scr_origin[1], g_scr_origin[2], 130.0f)) {
+            Con_Printf("[toshl] walk up to the terminal to type.\n");
+            return;
+        }
+        g_freewalk_active = false; // start typing
+        Con_Printf("[toshl] typing into TempleOS. X or F10 to stop.\n");
+    } else {
+        g_freewalk_active = true;  // stop typing
+    }
+    update_lock();
+}
 
 static void resolve_mod_dir() {
     // GetGameDirectory returns e.g. "half-life-templeos"; make absolute.
@@ -113,9 +139,9 @@ static bool try_connect_vm_once() {
         memcpy(g_scr_origin, FIXED_ORIGIN, sizeof(FIXED_ORIGIN));
         memcpy(g_scr_normal, FIXED_NORMAL, sizeof(FIXED_NORMAL));
         g_in_terminal = true;
-        g_freewalk_active = true;
-        LockPlayerMovement(0);
-        Con_Printf("[toshl] fixed: TempleOS locked to the control-room monitor.\n");
+        g_freewalk_active = true; // walking; press X near the console to type
+        update_lock();
+        Con_Printf("[toshl] fixed: TempleOS on the control-room monitor. X to type, Z to zoom.\n");
     }
     return true;
 }
@@ -158,17 +184,7 @@ extern "C" void TOSHL_OnRedraw() {
     // already shown (freewalk lets +use re-aim the panel).
     if (g_want_enter) {
         g_want_enter = false;
-
-        // Fixed mode: +use just toggles typing at the locked panel (no re-aim).
-        if (TOSHL_Fixed() && g_in_terminal) {
-            g_freewalk_active = !g_freewalk_active;
-            LockPlayerMovement(g_freewalk_active ? 0 : 1);
-            Con_Printf(g_freewalk_active
-                ? "[toshl] walking; panel stays put. Press use to type.\n"
-                : "[toshl] typing into TempleOS. Press use or F10 to stop.\n");
-            return;
-        }
-
+        // Aim-and-place mode (toshl_fixed 0). Fixed mode never sets g_want_enter.
         float o[3], nrm[3];
         if (TOSHL_AimSurface(96.0f, o, nrm)) {
             memcpy(g_scr_origin, o, sizeof(o));
@@ -182,15 +198,9 @@ extern "C" void TOSHL_OnRedraw() {
                 fclose(pf);
             }
             g_in_terminal = true;
-            g_freewalk_active = (TOSHL_Freewalk() != 0);
-            if (g_freewalk_active) {
-                LockPlayerMovement(0); // stay free to walk and judge
-                Con_Printf("[toshl] placed. Walk around to judge it. F10 clears it,\n");
-                Con_Printf("[toshl] 'toshl_freewalk 0' then re-place to type into it.\n");
-            } else {
-                LockPlayerMovement(1);
-                Con_Printf("[toshl] terminal engaged. F10 to exit.\n");
-            }
+            g_freewalk_active = true; // placed; press X (near) to type, Z to zoom
+            update_lock();
+            Con_Printf("[toshl] placed. X to type, Z to zoom, F10 to stop.\n");
         } else {
             Con_Printf("[toshl] no surface in front of you.\n");
         }
@@ -218,6 +228,7 @@ extern "C" void TOSHL_DrawWorld() {
 // Toggle the fullscreen zoom panel (bound to the toshl_zoom console command).
 extern "C" void TOSHL_ToggleZoom() {
     g_zoom = !g_zoom;
+    update_lock();
     Con_Printf("[toshl] zoom %s.\n", g_zoom ? "ON" : "off");
 }
 
@@ -237,35 +248,42 @@ extern "C" void TOSHL_DrawOverlay() {
 // Called from the client's window-proc hook (see SDK WIRING #3). Returns
 // true if the event was consumed (i.e. player is in terminal mode).
 extern "C" bool TOSHL_HandleKey(UINT msg, WPARAM wp, LPARAM lp) {
-    if (!g_in_terminal || !g_rfb) return false;
-
     bool down = (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN);
+    bool up   = (msg == WM_KEYUP   || msg == WM_SYSKEYUP);
 
-    // F10 stops typing. In fixed mode the panel is a permanent fixture, so just
-    // return to walking (keep it on screen); otherwise fully exit (dismiss it).
-    if (down && wp == VK_F10) {
-        if (TOSHL_Fixed()) { g_freewalk_active = true; LockPlayerMovement(0); }
-        else TOSHL_ExitTerminal();
-        return true;
+    bool typing = (g_in_terminal && !g_freewalk_active && g_rfb);
+
+    // Dedicated hotkeys, handled directly (the engine blocks the client from
+    // binding keys, so we do it here). Only for real key events.
+    if (g_rfb && (down || up)) {
+        // Z: toggle zoom from anywhere, even while typing (so you can read it).
+        if (wp == 'Z') { if (down) TOSHL_ToggleZoom(); return true; }
+        // X: start typing (needs proximity). While already typing, X falls
+        // through and is a normal character.
+        if (wp == 'X' && !typing) { if (down) toshl_toggle_typing(); return true; }
+        // F10: stop typing.
+        if (wp == VK_F10 && typing) {
+            if (down) { g_freewalk_active = true; update_lock(); }
+            return true;
+        }
     }
 
-    // Freewalk: the panel is only placed for judging, so let the engine keep
-    // the keyboard (WASD, ~ console, etc.). Only F10 above is intercepted.
-    if (g_freewalk_active) return false;
+    // Only route the keyboard to TempleOS while typing.
+    if (!typing) return false;
 
-    bool up = (msg == WM_KEYUP || msg == WM_SYSKEYUP);
     if (!down && !up) return true; // swallow char msgs while typing
 
-    // Track shift for choosing the character, but do NOT forward Shift itself:
-    // we already send the shifted keysym (e.g. 'A', '!'), and QEMU synthesises
-    // shift for those. Sending our own Shift on top fights that synthesis and
-    // breaks capitals/symbols.
+    // Send Shift as a real modifier and the BASE (unshifted) keysym for every
+    // other key; QEMU applies the shift. (It does not synthesise shift from
+    // pre-shifted keysyms, so sending 'A' / '"' without a held Shift gave
+    // nothing.)
     if (wp == VK_SHIFT || wp == VK_LSHIFT || wp == VK_RSHIFT) {
         g_shift_down = down;
+        rfb_send_key(g_rfb, XK_Shift_L, down);
         return true;
     }
 
-    uint32_t ks = vk_to_keysym(wp, g_shift_down);
+    uint32_t ks = vk_to_keysym(wp, false);
     if (ks) rfb_send_key(g_rfb, ks, down);
     return true;
 }
