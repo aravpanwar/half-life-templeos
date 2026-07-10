@@ -44,30 +44,30 @@ in the game. Instead it runs beside the game and is streamed in:
    its own GL texture and draws it as a flat quad pinned to a monitor surface.
    It uses the mod's own texture and geometry, so it never touches the map's
    shared, tiled textures. The screen stays crisp with zero bleed onto walls.
-4. **Interaction.** Press use at the terminal to lock in and type; the keyboard
-   routes straight to TempleOS over RFB. A zoom key blows the panel up
-   fullscreen so it is readable, and F10 steps back out.
+4. **Interaction.** Walk up to the console and press **X** to sit down and
+   type, which only works when you are close; your keyboard then routes straight
+   to TempleOS over RFB. Press **Z** to blow the panel up fullscreen so it is
+   readable, from anywhere in the room, and **F10** to stand back up.
 
 By default the panel auto-locks onto a specific Black Mesa control-room monitor
-(in `c1a0`). You can also aim at any surface and drop it there.
+in `c1a0`, so TempleOS is just there when you arrive. Set `toshl_fixed 0` to aim
+at any surface and drop it there instead.
 
 ## Controls
 
-Bind a key to `toshl_zoom` in the console (for example `bind z toshl_zoom`),
-then:
+No key binding needed; the mod claims these keys directly.
 
 | Key / command         | What it does                                     |
 |-----------------------|--------------------------------------------------|
-| use (E)               | enter / leave the terminal (lock and type)       |
-| z                     | toggle the fullscreen zoom                        |
-| F10                   | exit the terminal                                |
+| X                     | sit down and type (only when near the terminal)  |
+| Z                     | toggle fullscreen zoom (works from anywhere)     |
+| F10                   | stop typing                                      |
 | `toshl_size N`        | panel width in game units                        |
 | `toshl_aspect N`      | panel height / width (0.75 = 4:3)                |
 | `toshl_shiftr N`      | slide the panel right (negative = left)          |
 | `toshl_shiftu N`      | slide the panel up (negative = down)             |
 | `toshl_fwd N`         | push the panel off the wall toward you           |
-| `toshl_fixed 0`       | disable the baked spot; aim and press use instead|
-| `toshl_freewalk 0`    | lock movement and type, instead of place-and-walk|
+| `toshl_fixed 0`       | drop the baked spot; aim and +use to place it    |
 
 ## Repo layout
 
