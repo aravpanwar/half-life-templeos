@@ -437,10 +437,12 @@ void glhook_draw_quad(const uint8_t *rgba, int w, int h,
     normalize3(u);
 
     /* centre = hit point, offset toward the viewer (off_fwd, avoids z-fighting)
-       and shifted within the screen plane (off_right, off_up) for alignment */
+       and shifted within the screen plane (off_right, off_up) for alignment.
+       `r` points to the viewer's left (same reason the U texcoords are
+       flipped), so negate off_right to make positive toshl_shiftr go right. */
     float c[3];
     for (int i = 0; i < 3; i++)
-        c[i] = origin[i] + n[i]*off_fwd + r[i]*off_right + u[i]*off_up;
+        c[i] = origin[i] + n[i]*off_fwd - r[i]*off_right + u[i]*off_up;
     float hw = world_w * 0.5f, hh = world_h * 0.5f;
     float tl[3], tr[3], bl[3], br[3];
     for (int i = 0; i < 3; i++) {

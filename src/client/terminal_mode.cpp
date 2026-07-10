@@ -50,7 +50,7 @@ static bool          g_freewalk_active;   // placed-but-walking (vs locked typin
 static bool          g_zoom;              // fullscreen zoom panel active
 static float         g_scr_origin[3];    // frozen screen centre (trace hit)
 static float         g_scr_normal[3];    // frozen screen normal
-static float         g_quad_units = 26.0f; // quad width in game units (4:3)
+static float         g_quad_units = 32.0f; // quad width in game units (fallback)
 
 // -------------------------------------------------------------- helpers --
 
@@ -154,10 +154,10 @@ extern "C" void TOSHL_DrawWorld() {
     uint32_t serial;
     const uint8_t *frame = rfb_acquire_frame(g_rfb, &serial);
     if (frame) {
-        float size = g_quad_units, fwd = 1.0f, sr = 0.0f, su = 0.0f, aspect = 0.75f;
+        float size = g_quad_units, fwd = 0.25f, sr = 0.0f, su = 0.6f, aspect = 0.85f;
         TOSHL_QuadParams(&size, &fwd, &sr, &su, &aspect);
         if (size <= 0.0f) size = g_quad_units;
-        if (aspect <= 0.0f) aspect = 0.75f;
+        if (aspect <= 0.0f) aspect = 0.85f;
         glhook_draw_quad(frame, g_fb_w, g_fb_h, g_scr_origin, g_scr_normal,
                          size, size * aspect, fwd, sr, su);
         rfb_release_frame(g_rfb);
@@ -200,7 +200,14 @@ extern "C" bool TOSHL_HandleKey(UINT msg, WPARAM wp, LPARAM lp) {
     bool up = (msg == WM_KEYUP || msg == WM_SYSKEYUP);
     if (!down && !up) return true; // swallow char msgs while typing
 
-    if (wp == VK_SHIFT || wp == VK_LSHIFT || wp == VK_RSHIFT) g_shift_down = down;
+    // Track shift for choosing the character, but do NOT forward Shift itself:
+    // we already send the shifted keysym (e.g. 'A', '!'), and QEMU synthesises
+    // shift for those. Sending our own Shift on top fights that synthesis and
+    // breaks capitals/symbols.
+    if (wp == VK_SHIFT || wp == VK_LSHIFT || wp == VK_RSHIFT) {
+        g_shift_down = down;
+        return true;
+    }
 
     uint32_t ks = vk_to_keysym(wp, g_shift_down);
     if (ks) rfb_send_key(g_rfb, ks, down);
