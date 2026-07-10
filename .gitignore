@@ -10,3 +10,7 @@ vm/qemu_path.txt
 # runtime logs and probe output
 toshl_uploads.log
 *.ppm
+
+# only README.md belongs in the repo; keep other markdown out
+*.md
+!README.md

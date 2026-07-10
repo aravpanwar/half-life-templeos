@@ -46,8 +46,6 @@ the game. So instead:
    mode*: movement locks, keyboard/mouse route to the VM over RFB. **F10**
    exits.
 
-Full detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
 ## Repo layout
 
 ```
