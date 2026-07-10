@@ -144,12 +144,13 @@ extern "C" void TOSHL_OnRedraw() {
     // The live CD asks a couple of boot questions in sequence ("Install onto
     // hard drive?", then "Take Tour?"). Auto-answer each with 'N' on a timer so
     // the VM lands on the full desktop by itself. Sends at 10s, 14s, 18s.
+    // (Do NOT try to Cls the screen from here: it runs before the boot script
+    // finishes and faults TempleOS into its debugger.)
     if (g_rfb && g_dismiss_count < 3 &&
         (GetTickCount() - g_connect_tick) > (DWORD)(10000 + g_dismiss_count * 4000)) {
         rfb_send_key(g_rfb, 'n', true);      rfb_send_key(g_rfb, 'n', false);
         rfb_send_key(g_rfb, 0xFF0D, true);   rfb_send_key(g_rfb, 0xFF0D, false); // Return
         g_dismiss_count++;
-        Con_Printf("[toshl] auto-answered TempleOS boot prompt %d.\n", g_dismiss_count);
     }
 
     // Resolve a pending +use here (a clean context, unlike CL_CreateMove) so
@@ -240,8 +241,13 @@ extern "C" bool TOSHL_HandleKey(UINT msg, WPARAM wp, LPARAM lp) {
 
     bool down = (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN);
 
-    // F10 clears/exits in any mode.
-    if (down && wp == VK_F10) { TOSHL_ExitTerminal(); return true; }
+    // F10 stops typing. In fixed mode the panel is a permanent fixture, so just
+    // return to walking (keep it on screen); otherwise fully exit (dismiss it).
+    if (down && wp == VK_F10) {
+        if (TOSHL_Fixed()) { g_freewalk_active = true; LockPlayerMovement(0); }
+        else TOSHL_ExitTerminal();
+        return true;
+    }
 
     // Freewalk: the panel is only placed for judging, so let the engine keep
     // the keyboard (WASD, ~ console, etc.). Only F10 above is intercepted.
