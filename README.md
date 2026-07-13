@@ -76,31 +76,59 @@ src/rfb/         minimal RFB/VNC client (Raw encoding), no external deps
 src/glhook/      GL rendering: world-space quad + fullscreen zoom (+ discovery)
 src/vmproc/      QEMU launcher (Job Object: the VM dies with the game)
 src/client/      orchestrator: RFB to render, placement, input, keymap
+src/sdk_glue/    Half-Life SDK glue: entry points, +use edge, window subclass
+integration/     patch + script that wire the mod into the HL SDK client build
 tools/           rfb_probe: prove the VM pipeline works before touching HL
 vm/              setup script; TempleOS.iso + qemu_path.txt live here
 ```
 
 ## Build
 
-Prerequisites: the Half-Life SDK (a VS2019-buildable `cl_dll`), a 32-bit MSVC
-toolchain, QEMU, and the MinHook submodule.
+You need Visual Studio 2019 (v142 toolset, 32-bit MSVC), QEMU, and a checkout
+of the Half-Life SDK. Use the **steam_legacy** branch: the 25th-Anniversary
+update replaced GoldSrc's classic OpenGL path, and the GL rendering this mod
+relies on only works on the pre-anniversary (steam_legacy) engine.
 
-```sh
+The mod is not a standalone binary; its sources compile into the SDK's client
+library. So the flow is: check out the SDK, check out this repo next to it, and
+run one script that adds the mod sources and the entry-point splices to the SDK
+project.
+
+```powershell
+# 1. Half-Life SDK, steam_legacy branch (this mod is developed against edbae22)
+git clone https://github.com/SamVanheer/halflife-updated
+git -C halflife-updated checkout steam_legacy
+
+# 2. This repo, NEXT TO the SDK (same parent folder), folder name kept, submodule included
 git clone --recursive https://github.com/aravpanwar/half-life-templeos
-cd half-life-templeos
 #   git submodule update --init   # if you forgot --recursive
 
-# fetch the TempleOS ISO and point the mod at your QEMU install
-cd vm && powershell -ExecutionPolicy Bypass -File setup.ps1 && cd ..
+# 3. Fetch the TempleOS ISO and point the mod at your QEMU install
+powershell -ExecutionPolicy Bypass -File half-life-templeos\vm\setup.ps1
 
-# sanity-check the VM pipeline with NO game involved
+# 4. Wire the mod into the SDK client project (adds sources + the three splices)
+powershell -ExecutionPolicy Bypass -File half-life-templeos\integration\apply-integration.ps1 -SdkPath halflife-updated
+```
+
+Then open `halflife-updated\projects\vs2019\projects.sln` in Visual Studio
+2019 and build **hl_cdll** in **Release / Win32**. The post-build step installs
+`client.dll` into the mod folder named in `halflife-updated\filecopy.bat`. Launch
+Half-Life on the steam_legacy branch as a local singleplayer / `-insecure`
+session (see the VAC note above) and load a map with a monitor, such as `c1a0`.
+
+The integration is a single git patch (`integration/halflife-updated.patch`);
+the script just applies it, and `-Revert` undoes it. It touches only three SDK
+files (`cdll_int.cpp`, `input.cpp`, `tri.cpp`) at tagged splice points, plus the
+project file and `filecopy.bat`.
+
+Optional: sanity-check the VM pipeline with no game involved.
+
+```powershell
+cd half-life-templeos
 cmake -B build -A Win32
 cmake --build build --config Release --target rfb_probe
 build\Release\rfb_probe.exe 127.0.0.1 5900 frame.ppm   # open frame.ppm
 ```
-
-The mod's sources compile into the Half-Life SDK's client library. See the SDK
-wiring notes in `src/client/terminal_mode.cpp`.
 
 ## Roadmap
 
