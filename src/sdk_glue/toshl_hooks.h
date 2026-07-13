@@ -36,10 +36,6 @@ int  TOSHL_AimSurface(float max_dist, float out_origin[3], float out_normal[3]);
    toshl_shiftu). Defined in toshl_glue.cpp. */
 void TOSHL_QuadParams(float* size, float* fwd, float* right, float* up, float* aspect);
 
-/* 1 = place the panel but keep the player free to walk (judge placement);
-   0 = lock movement and route the keyboard to TempleOS. */
-int  TOSHL_Freewalk(void);
-
 /* 1 = auto-lock the panel to the baked control-room monitor (c1a0). */
 int  TOSHL_Fixed(void);
 

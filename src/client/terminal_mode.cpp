@@ -25,7 +25,6 @@ extern "C" {
 extern "C" void  Con_Printf(const char *fmt, ...);   // wraps gEngfuncs->Con_Printf
 extern "C" int   TOSHL_AimSurface(float max_dist, float out_origin[3], float out_normal[3]);
 extern "C" void  TOSHL_QuadParams(float *size, float *fwd, float *right, float *up, float *aspect);
-extern "C" int   TOSHL_Freewalk(void);
 extern "C" int   TOSHL_Fixed(void);
 extern "C" int   TOSHL_PlayerNear(float x, float y, float z, float radius);
 extern "C" void  LockPlayerMovement(int locked); // suppresses CL_CreateMove
@@ -92,27 +91,6 @@ static void resolve_mod_dir() {
     char cwd[MAX_PATH]; GetCurrentDirectoryA(MAX_PATH, cwd);
     // In production, query gEngfuncs->pfnGetGameDirectory().
     _snprintf(g_mod_dir, MAX_PATH, "%s\\half-life-templeos", cwd);
-}
-
-static bool ensure_vm_and_rfb() {
-    if (!vm_is_running()) {
-        if (!vm_launch(g_mod_dir, VNC_DISPLAY)) {
-            Con_Printf("[toshl] failed to launch QEMU: check vm/qemu_path.txt\n");
-            return false;
-        }
-    }
-    if (!g_rfb) {
-        // QEMU's VNC listener may take a beat to bind; retry briefly.
-        for (int attempt = 0; attempt < 40 && !g_rfb; ++attempt) {
-            g_rfb = rfb_connect(VM_HOST, VNC_PORT);
-            if (!g_rfb) Sleep(250);
-        }
-        if (!g_rfb) { Con_Printf("[toshl] RFB connect failed: %s\n", rfb_last_error()); return false; }
-        rfb_get_size(g_rfb, &g_fb_w, &g_fb_h);
-        if (!rfb_start(g_rfb)) { Con_Printf("[toshl] RFB pump failed\n"); return false; }
-        Con_Printf("[toshl] TempleOS online at %dx%d. Behold.\n", g_fb_w, g_fb_h);
-    }
-    return true;
 }
 
 // -------------------------------------------------- per-frame rendering --

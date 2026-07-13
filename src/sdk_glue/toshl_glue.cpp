@@ -47,16 +47,6 @@ extern "C" void TOSHL_QuadParams(float* size, float* fwd, float* right, float* u
 	*aspect = gEngfuncs.pfnGetCvarFloat("toshl_aspect");
 }
 
-// A small centre-screen aim dot so terminals can be targeted without a weapon
-// (HL only draws a crosshair when a weapon is active). Hidden while in a
-// terminal. Temporary aid; drop it once placement is dialled in.
-// Nonzero when the terminal should only be PLACED (panel shown) but the player
-// stays free to walk and judge it from different distances. 0 = locked typing.
-extern "C" int TOSHL_Freewalk(void)
-{
-	return gEngfuncs.pfnGetCvarFloat("toshl_freewalk") != 0.0f ? 1 : 0;
-}
-
 extern "C" int TOSHL_Fixed(void)
 {
 	return gEngfuncs.pfnGetCvarFloat("toshl_fixed") != 0.0f ? 1 : 0;
@@ -88,7 +78,6 @@ extern "C" void TOSHL_RegisterCommands(void)
 	gEngfuncs.pfnRegisterVariable("toshl_shiftr", "0", 0);   // shift right in plane
 	gEngfuncs.pfnRegisterVariable("toshl_shiftu", "0.6", 0); // shift up in plane
 	gEngfuncs.pfnRegisterVariable("toshl_aspect", "0.85", 0); // panel height/width
-	gEngfuncs.pfnRegisterVariable("toshl_freewalk", "1", 0); // 1=place & walk, 0=lock+type
 	gEngfuncs.pfnRegisterVariable("toshl_fixed", "1", 0);    // 1=auto-lock to baked c1a0 monitor
 
 	// In discovery mode, bind the cycle keys ourselves. This runs at HUD_Init,
