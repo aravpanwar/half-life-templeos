@@ -1,0 +1,164 @@
+diff --git a/cl_dll/cdll_int.cpp b/cl_dll/cdll_int.cpp
+index de9efcd..83144f6 100644
+--- a/cl_dll/cdll_int.cpp
++++ b/cl_dll/cdll_int.cpp
+@@ -38,6 +38,8 @@
+ #include "vgui_TeamFortressViewport.h"
+ #include "filesystem_utils.h"
+ 
++#include "toshl_hooks.h" // TempleOS-HL1
++
+ cl_enginefunc_t gEngfuncs;
+ CHud gHUD;
+ TeamFortressViewport* gViewPort = NULL;
+@@ -173,6 +175,8 @@ int DLLEXPORT HUD_VidInit()
+ 
+ 	VGui_Startup();
+ 
++	TOSHL_OnMapChange(); // TempleOS-HL1: forget captured monitor textures
++
+ 	return 1;
+ }
+ 
+@@ -192,6 +196,10 @@ void DLLEXPORT HUD_Init()
+ 	InitInput();
+ 	gHUD.Init();
+ 	Scheme_Init();
++
++	TOSHL_Init();            // TempleOS-HL1: install GL hook, load fingerprints
++	TOSHL_InstallInput();    // subclass the engine window for terminal keys
++	TOSHL_RegisterCommands(); // toshl_next / toshl_prev / toshl_lock (discovery)
+ }
+ 
+ 
+@@ -210,6 +218,10 @@ int DLLEXPORT HUD_Redraw(float time, int intermission)
+ 
+ 	gHUD.Redraw(time, 0 != intermission);
+ 
++	TOSHL_OnRedraw();    // TempleOS-HL1: VM housekeeping + deferred +use enter
++	TOSHL_DrawOverlay(); // fullscreen zoom panel (if toggled)
++	TOSHL_DrawHud();     // aim dot
++
+ 	return 1;
+ }
+ 
+diff --git a/cl_dll/input.cpp b/cl_dll/input.cpp
+index 3c16a84..a503fd6 100644
+--- a/cl_dll/input.cpp
++++ b/cl_dll/input.cpp
+@@ -21,6 +21,8 @@
+ #include "vgui_TeamFortressViewport.h"
+ #include "filesystem_utils.h"
+ 
++#include "toshl_hooks.h" // TempleOS-HL1
++
+ 
+ extern bool g_iAlive;
+ 
+@@ -754,6 +756,16 @@ void DLLEXPORT CL_CreateMove(float frametime, struct usercmd_s* cmd, int active)
+ 	{
+ 		VectorCopy(oldangles, cmd->viewangles);
+ 	}
++
++	// TempleOS-HL1: detect the +use rising edge (enters terminal mode when
++	// looking at a monitor), and freeze the player while driving a terminal.
++	TOSHL_OnUseState((in_use.state & 1) != 0);
++	if (0 != TOSHL_WantsMovementLock())
++	{
++		cmd->forwardmove = cmd->sidemove = cmd->upmove = 0;
++		cmd->buttons &= ~(IN_ATTACK | IN_ATTACK2 | IN_JUMP | IN_DUCK |
++						  IN_FORWARD | IN_BACK | IN_MOVELEFT | IN_MOVERIGHT | IN_USE);
++	}
+ }
+ 
+ /*
+@@ -1018,6 +1030,9 @@ void DLLEXPORT HUD_Shutdown()
+ {
+ 	//	RecClShutdown();
+ 
++	TOSHL_RemoveInput(); // TempleOS-HL1: restore the engine window proc
++	TOSHL_Shutdown();    // tear down VM + RFB + GL hook
++
+ 	ShutdownInput();
+ 
+ 
+diff --git a/cl_dll/tri.cpp b/cl_dll/tri.cpp
+index 367ddc3..9dbb32f 100644
+--- a/cl_dll/tri.cpp
++++ b/cl_dll/tri.cpp
+@@ -20,6 +20,8 @@
+ 
+ #include "particleman.h"
+ #include "tri.h"
++
++#include "toshl_hooks.h" // TempleOS-HL1
+ extern IParticleMan* g_pParticleMan;
+ 
+ /*
+@@ -51,4 +53,6 @@ void DLLEXPORT HUD_DrawTransparentTriangles()
+ 
+ 	if (g_pParticleMan)
+ 		g_pParticleMan->Update();
++
++	TOSHL_DrawWorld(); // TempleOS-HL1: draw the terminal quad in the world
+ }
+diff --git a/filecopy.bat b/filecopy.bat
+index 26ba0f7..f16c5f4 100755
+--- a/filecopy.bat
++++ b/filecopy.bat
+@@ -2,7 +2,7 @@
+ setlocal EnableDelayedExpansion
+ 
+ rem Set this path to your mod directory. You can use environment variables to avoid hardcoding the path if your team members have different install locations.
+-set mod_directory=C:/Program Files (x86)/Steam/steamapps/common/Half-Life/halflife_updated
++set mod_directory=C:/Program Files (x86)/Steam/steamapps/common/Half-Life/half-life-templeos
+ 
+ rem Input paths may end with a backslash which will be interpreted as an escape character when passed into robocopy, so this needs to be escaped.
+ set source=%~1
+diff --git a/projects/vs2019/hl_cdll.vcxproj b/projects/vs2019/hl_cdll.vcxproj
+index 1335c01..26dd05f 100644
+--- a/projects/vs2019/hl_cdll.vcxproj
++++ b/projects/vs2019/hl_cdll.vcxproj
+@@ -62,7 +62,7 @@
+       <Optimization>Disabled</Optimization>
+       <PreprocessorDefinitions>WIN32;_CRT_SECURE_NO_WARNINGS;_DEBUG;_WINDOWS;CLIENT_DLL;CLIENT_WEAPONS;HL_DLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+-      <AdditionalIncludeDirectories>..\..\dlls;..\..\cl_dll;..\..\cl_dll\particleman;..\..\public;..\..\common;..\..\pm_shared;..\..\engine;..\..\utils\vgui\include;..\..\game_shared;..\..\external;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
++      <AdditionalIncludeDirectories>..\..\..\half-life-templeos\third_party\minhook\include;..\..\..\half-life-templeos\src\sdk_glue;..\..\dlls;..\..\cl_dll;..\..\cl_dll\particleman;..\..\public;..\..\common;..\..\pm_shared;..\..\engine;..\..\utils\vgui\include;..\..\game_shared;..\..\external;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+       <RuntimeTypeInfo>true</RuntimeTypeInfo>
+       <AdditionalOptions>/Zc:threadSafeInit- %(AdditionalOptions)</AdditionalOptions>
+       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+@@ -93,7 +93,7 @@ cmd /c ""$(ProjectDir)..\..\filecopy.bat" "$(SolutionDir)../../network" "" "delt
+       <IntrinsicFunctions>true</IntrinsicFunctions>
+       <PreprocessorDefinitions>WIN32;_CRT_SECURE_NO_WARNINGS;NDEBUG;_WINDOWS;CLIENT_DLL;CLIENT_WEAPONS;HL_DLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+-      <AdditionalIncludeDirectories>..\..\dlls;..\..\cl_dll;..\..\cl_dll\particleman;..\..\public;..\..\common;..\..\pm_shared;..\..\engine;..\..\utils\vgui\include;..\..\game_shared;..\..\external;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
++      <AdditionalIncludeDirectories>..\..\..\half-life-templeos\third_party\minhook\include;..\..\..\half-life-templeos\src\sdk_glue;..\..\dlls;..\..\cl_dll;..\..\cl_dll\particleman;..\..\public;..\..\common;..\..\pm_shared;..\..\engine;..\..\utils\vgui\include;..\..\game_shared;..\..\external;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+       <RuntimeTypeInfo>true</RuntimeTypeInfo>
+       <AdditionalOptions>/Zc:threadSafeInit- %(AdditionalOptions)</AdditionalOptions>
+       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+@@ -296,6 +296,24 @@ cmd /c ""$(ProjectDir)..\..\filecopy.bat" "$(SolutionDir)../../network" "" "delt
+     <ClInclude Include="..\..\pm_shared\pm_shared.h" />
+     <ClInclude Include="..\..\public\interface.h" />
+   </ItemGroup>
++  <!-- TempleOS-HL1 mod sources. The half-life-templeos repo is expected to be
++       checked out next to this SDK tree. See integration/apply-integration.ps1. -->
++  <ItemGroup>
++    <ClCompile Include="..\..\..\half-life-templeos\src\rfb\rfb_client.c" />
++    <ClCompile Include="..\..\..\half-life-templeos\src\glhook\gl_hook.c" />
++    <ClCompile Include="..\..\..\half-life-templeos\src\vmproc\vm_launcher.c" />
++    <ClCompile Include="..\..\..\half-life-templeos\src\client\terminal_mode.cpp" />
++    <ClCompile Include="..\..\..\half-life-templeos\src\sdk_glue\toshl_glue.cpp" />
++    <ClCompile Include="..\..\..\half-life-templeos\src\sdk_glue\toshl_input_win32.cpp" />
++    <ClCompile Include="..\..\..\half-life-templeos\third_party\minhook\src\buffer.c" />
++    <ClCompile Include="..\..\..\half-life-templeos\third_party\minhook\src\hook.c" />
++    <ClCompile Include="..\..\..\half-life-templeos\third_party\minhook\src\trampoline.c" />
++    <ClCompile Include="..\..\..\half-life-templeos\third_party\minhook\src\hde\hde32.c" />
++    <ClCompile Include="..\..\..\half-life-templeos\third_party\minhook\src\hde\hde64.c" />
++  </ItemGroup>
++  <ItemGroup>
++    <ClInclude Include="..\..\..\half-life-templeos\src\sdk_glue\toshl_hooks.h" />
++  </ItemGroup>
+   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+   <ImportGroup Label="ExtensionTargets">
+   </ImportGroup>
