@@ -1,0 +1,9 @@
+# Normalize line endings: store LF in the repo, convert to native on checkout.
+* text=auto
+
+# Windows-only scripts stay CRLF on checkout.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+# The integration patch must keep its exact bytes so git apply stays reliable.
+*.patch -text
