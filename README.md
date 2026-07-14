@@ -50,7 +50,12 @@ in the game. Instead it runs beside the game and is streamed in:
 4. **Interaction.** Walk up to the console and press **X** to sit down and
    type, which only works when you are close; your keyboard then routes straight
    to TempleOS over RFB. Press **Z** to blow the panel up fullscreen so it is
-   readable, from anywhere in the room, and **F10** to stand back up.
+   readable, from anywhere in the room, and **F10** to stand back up. TempleOS is
+   keyboard-driven by design, so the keyboard is all you need.
+5. **Sound (opt-in).** Set `toshl_sound 1` and reload the map to route
+   TempleOS's PC-speaker output (the beeps and the hymns) to the host over SDL
+   audio. It is off by default, and if the audio backend can't start headless
+   the VM simply launches silent, so sound can never hold TempleOS back.
 
 By default the panel auto-locks onto a specific Black Mesa control-room monitor
 in `c1a0`, so TempleOS is just there when you arrive. Set `toshl_fixed 0` to aim
@@ -76,6 +81,7 @@ No key binding needed; the mod claims these keys directly.
 | `toshl_crt_scan N`    | scanline depth (0 = none)                        |
 | `toshl_crt_mask N`    | RGB shadow-mask depth (0 = none)                 |
 | `toshl_crt_bezel N`   | curvature-border opacity (1 = black, 0 = clear)  |
+| `toshl_sound 1`       | opt-in PC-speaker audio (reload the map to apply) |
 
 ## Repo layout
 
@@ -141,8 +147,10 @@ build\Release\rfb_probe.exe 127.0.0.1 5900 frame.ppm   # open frame.ppm
 ## Roadmap
 
 - Persist a writable TempleOS data drive so files survive between sessions
-- PC-speaker to DirectSound so you hear the hymns
 - Terminals placed in more maps
+- Mouse support. TempleOS is PS/2-only, and QEMU confines a PS/2 mouse driven
+  over VNC to a small region; making the cursor track fully would need an
+  absolute pointing device TempleOS does not have a driver for.
 
 ## Licensing
 
