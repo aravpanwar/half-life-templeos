@@ -30,6 +30,14 @@ extern "C" {
 void TOSHL_TryEnterTerminal(void); // defined in terminal_mode.cpp
 }
 
+// Opt-in PC-speaker audio. Off by default: routing QEMU's speaker to the host
+// depends on the audio backend working headless, so it must never be able to
+// hold back the VM launch. Flip toshl_sound 1 and reload the map to try it.
+extern "C" int TOSHL_SoundEnabled(void)
+{
+	return gEngfuncs.pfnGetCvarFloat("toshl_sound") != 0.0f ? 1 : 0;
+}
+
 // ------------------------------------------------- discovery commands --
 static void toshl_cmd_next(void) { TOSHL_DiscoverCycle(+1); }
 static void toshl_cmd_prev(void) { TOSHL_DiscoverCycle(-1); }
@@ -101,6 +109,7 @@ extern "C" void TOSHL_RegisterCommands(void)
 	gEngfuncs.pfnRegisterVariable("toshl_crt_scan", "0.35", 0);  // scanline depth
 	gEngfuncs.pfnRegisterVariable("toshl_crt_mask", "0.30", 0);  // shadow-mask depth
 	gEngfuncs.pfnRegisterVariable("toshl_crt_bezel", "0.3", 0);  // curvature-border opacity
+	gEngfuncs.pfnRegisterVariable("toshl_sound", "0", 0);       // 1=route PC speaker to host (opt-in)
 
 	// In discovery mode, bind the cycle keys ourselves. This runs at HUD_Init,
 	// AFTER the engine has exec'd config.cfg, so these binds win (config.cfg

@@ -53,6 +53,10 @@ void TOSHL_RemoveInput(void);    /* restore the original window proc         */
 void TOSHL_OnUseState(int down); /* feed +use key state each CL_CreateMove    */
 int  TOSHL_WantsMovementLock(void); /* nonzero while driving the terminal    */
 
+/* 1 if opt-in PC-speaker audio is enabled (toshl_sound). Defined in
+   toshl_glue.cpp. */
+int  TOSHL_SoundEnabled(void);
+
 /* Discovery console commands: registered by TOSHL_RegisterCommands (glue),
    backed by TOSHL_DiscoverCycle / TOSHL_DiscoverPrint (terminal_mode.cpp). */
 void TOSHL_RegisterCommands(void);

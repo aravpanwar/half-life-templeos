@@ -29,6 +29,7 @@ extern "C" void  TOSHL_CrtParams(int *on, float *curve, float *scan, float *mask
 extern "C" int   TOSHL_Fixed(void);
 extern "C" int   TOSHL_PlayerNear(float x, float y, float z, float radius);
 extern "C" void  LockPlayerMovement(int locked); // suppresses CL_CreateMove
+extern "C" int   TOSHL_SoundEnabled(void);       // toshl_sound cvar (opt-in audio)
 
 // Baked control-room monitor placement in c1a0 (captured from tuning).
 static const float FIXED_ORIGIN[3] = { -312.03f, 206.06f, -160.66f };
@@ -102,7 +103,7 @@ static void resolve_mod_dir() {
 // first call. Returns true once the RFB pump is live.
 static bool try_connect_vm_once() {
     if (g_rfb) return true;
-    if (!vm_is_running()) vm_launch(g_mod_dir, VNC_DISPLAY);
+    if (!vm_is_running()) vm_launch(g_mod_dir, VNC_DISPLAY, TOSHL_SoundEnabled());
     rfb_client_t *c = rfb_connect(VM_HOST, VNC_PORT);
     if (!c) return false;
     g_rfb = c;
@@ -262,28 +263,22 @@ extern "C" bool TOSHL_HandleKey(UINT msg, WPARAM wp, LPARAM lp) {
 
     if (!down && !up) return true; // swallow char msgs while typing
 
-    // Send Shift as a real modifier and the BASE (unshifted) keysym for every
-    // other key; QEMU applies the shift. (It does not synthesise shift from
-    // pre-shifted keysyms, so sending 'A' / '"' without a held Shift gave
-    // nothing.)
+    // Hold Shift as a real modifier AND send the shifted keysym. QEMU forces the
+    // exact keysym you request, so a bare 'a' stays lowercase even while Shift is
+    // physically held; and it does not synthesise Shift from a shifted keysym on
+    // its own. Sending both together (Shift_L held + 'A') is what actually
+    // produces capitals and shifted punctuation.
     if (wp == VK_SHIFT || wp == VK_LSHIFT || wp == VK_RSHIFT) {
         g_shift_down = down;
         rfb_send_key(g_rfb, XK_Shift_L, down);
         return true;
     }
 
-    uint32_t ks = vk_to_keysym(wp, false);
+    uint32_t ks = vk_to_keysym(wp, g_shift_down);
     if (ks) rfb_send_key(g_rfb, ks, down);
     return true;
 }
 
-// mouse motion while in terminal: map trace UV -> framebuffer coords
-extern "C" void TOSHL_HandleMouse(float uv_x, float uv_y, int buttons) {
-    if (!g_in_terminal || !g_rfb) return;
-    uint16_t x = (uint16_t)(uv_x * g_fb_w);
-    uint16_t y = (uint16_t)(uv_y * g_fb_h);
-    rfb_send_pointer(g_rfb, x, y, (uint8_t)buttons);
-}
 
 // ------------------------------------------------------- enter / leave --
 

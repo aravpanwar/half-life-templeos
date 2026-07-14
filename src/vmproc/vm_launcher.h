@@ -11,10 +11,12 @@ extern "C" {
 /*
  * Launch QEMU headless with a VNC server on 127.0.0.1:<5900+display>.
  * `mod_dir` = absolute path to the mod folder (contains vm/TempleOS.iso and
- * vm/qemu path config). Uses a Win32 Job Object with KILL_ON_JOB_CLOSE so
- * the VM can never outlive hl.exe, even on a crash.
+ * vm/qemu path config). `audio` requests PC-speaker sound (best effort; the
+ * launcher drops it automatically if it turns out unavailable). Uses a Win32
+ * Job Object with KILL_ON_JOB_CLOSE so the VM can never outlive hl.exe, even
+ * on a crash.
  */
-bool vm_launch(const char *mod_dir, int vnc_display);
+bool vm_launch(const char *mod_dir, int vnc_display, int audio);
 bool vm_is_running(void);
 void vm_kill(void);
 
