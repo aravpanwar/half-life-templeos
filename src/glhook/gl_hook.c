@@ -375,6 +375,186 @@ void glhook_blit(const uint8_t *rgba, int src_w, int src_h, uint32_t serial) {
     glPixelStorei(GL_UNPACK_ALIGNMENT, prev_align);
 }
 
+/* ----------------------------------------------------------- CRT shader -- */
+/*
+ * Optional CRT post-effect: barrel curvature, scanlines locked to TempleOS's
+ * emulated rows, an RGB shadow mask and a soft vignette, via a GLSL 120
+ * fragment shader. The shader entry points are not in the classic opengl32
+ * import library, so they are loaded with wglGetProcAddress at first use. If
+ * GL 2.0 or shader compilation is unavailable, crt_begin() returns 0 and the
+ * caller draws the plain textured quad instead; we never retry. So the effect
+ * is pure upside: it either turns on or silently does nothing.
+ */
+
+#ifndef GL_FRAGMENT_SHADER
+#define GL_FRAGMENT_SHADER 0x8B30
+#define GL_VERTEX_SHADER   0x8B31
+#define GL_COMPILE_STATUS  0x8B81
+#define GL_LINK_STATUS     0x8B82
+#endif
+
+typedef GLuint (WINAPI *PFN_glCreateShader)(GLenum);
+typedef void   (WINAPI *PFN_glShaderSource)(GLuint, GLsizei, const char* const*, const GLint*);
+typedef void   (WINAPI *PFN_glCompileShader)(GLuint);
+typedef void   (WINAPI *PFN_glGetShaderiv)(GLuint, GLenum, GLint*);
+typedef GLuint (WINAPI *PFN_glCreateProgram)(void);
+typedef void   (WINAPI *PFN_glAttachShader)(GLuint, GLuint);
+typedef void   (WINAPI *PFN_glLinkProgram)(GLuint);
+typedef void   (WINAPI *PFN_glGetProgramiv)(GLuint, GLenum, GLint*);
+typedef void   (WINAPI *PFN_glUseProgram)(GLuint);
+typedef GLint  (WINAPI *PFN_glGetUniformLocation)(GLuint, const char*);
+typedef void   (WINAPI *PFN_glUniform1i)(GLint, GLint);
+typedef void   (WINAPI *PFN_glUniform1f)(GLint, GLfloat);
+typedef void   (WINAPI *PFN_glUniform2f)(GLint, GLfloat, GLfloat);
+typedef void   (WINAPI *PFN_glDeleteShader)(GLuint);
+
+static PFN_glCreateShader      p_glCreateShader;
+static PFN_glShaderSource      p_glShaderSource;
+static PFN_glCompileShader     p_glCompileShader;
+static PFN_glGetShaderiv       p_glGetShaderiv;
+static PFN_glCreateProgram     p_glCreateProgram;
+static PFN_glAttachShader      p_glAttachShader;
+static PFN_glLinkProgram       p_glLinkProgram;
+static PFN_glGetProgramiv      p_glGetProgramiv;
+static PFN_glUseProgram        p_glUseProgram;
+static PFN_glGetUniformLocation p_glGetUniformLocation;
+static PFN_glUniform1i         p_glUniform1i;
+static PFN_glUniform1f         p_glUniform1f;
+static PFN_glUniform2f         p_glUniform2f;
+static PFN_glDeleteShader      p_glDeleteShader;
+
+static const char *CRT_VS =
+    "#version 120\n"
+    "void main() {\n"
+    "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+    "    gl_TexCoord[0] = gl_MultiTexCoord0;\n"
+    "}\n";
+
+static const char *CRT_FS =
+    "#version 120\n"
+    "uniform sampler2D uTex;\n"
+    "uniform vec2  uSrc;\n"   /* emulated resolution, e.g. 640x480 */
+    "uniform float uCurve;\n" /* barrel amount                     */
+    "uniform float uScan;\n"  /* scanline depth 0..1               */
+    "uniform float uMask;\n"  /* shadow-mask depth 0..1            */
+    "void main() {\n"
+    "    vec2 uv0 = gl_TexCoord[0].xy;\n"
+    "    vec2 cc = uv0 * 2.0 - 1.0;\n"
+    "    cc *= 1.0 + uCurve * dot(cc, cc);\n"
+    "    vec2 uv = cc * 0.5 + 0.5;\n"
+    "    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {\n"
+    "        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return;\n"
+    "    }\n"
+    "    vec3 col = texture2D(uTex, uv).rgb;\n"
+    /* scanlines locked to the emulated rows, faded out when the panel is too
+       small to resolve them (avoids moire on the distant in-world monitor) */
+    "    float sl = 0.5 + 0.5 * cos(uv.y * uSrc.y * 6.2831853);\n"
+    "    float fw = fwidth(uv.y) * uSrc.y;\n"
+    "    float scanAmt = uScan * clamp(1.0 - fw, 0.0, 1.0);\n"
+    "    col *= mix(1.0 - scanAmt, 1.0, sl);\n"
+    /* RGB shadow mask in screen space (crisp at any panel size) */
+    "    float mx = mod(gl_FragCoord.x, 3.0);\n"
+    "    vec3 mask = vec3(1.0 - uMask);\n"
+    "    if (mx < 1.0) mask.r = 1.0; else if (mx < 2.0) mask.g = 1.0; else mask.b = 1.0;\n"
+    "    col *= mask;\n"
+    "    col *= 1.0 + 0.7 * uMask + 0.3 * scanAmt;\n" /* recover mask/scan losses */
+    "    float d = length(uv0 * 2.0 - 1.0);\n"
+    "    col *= mix(1.0, smoothstep(1.35, 0.2, d), 0.25);\n" /* soft vignette */
+    "    gl_FragColor = vec4(col, 1.0);\n"
+    "}\n";
+
+static int    g_crt_on = 1;
+static float  g_crt_curve = 0.12f, g_crt_scan = 0.35f, g_crt_mask = 0.30f;
+static int    g_crt_gl2 = 0;    /* 0 untried, 1 loaded, -1 unavailable */
+static int    g_crt_state = 0;  /* 0 untried, 1 ready,  -1 failed      */
+static GLuint g_crt_prog;
+static GLint  u_tex, u_src, u_curve, u_scan, u_mask;
+
+static int crt_load_gl2(void) {
+    if (g_crt_gl2) return g_crt_gl2 > 0;
+    #define TOSHL_LOAD(n) do { p_##n = (PFN_##n)wglGetProcAddress(#n); \
+        if (!p_##n) { g_crt_gl2 = -1; return 0; } } while (0)
+    TOSHL_LOAD(glCreateShader);       TOSHL_LOAD(glShaderSource);
+    TOSHL_LOAD(glCompileShader);      TOSHL_LOAD(glGetShaderiv);
+    TOSHL_LOAD(glCreateProgram);      TOSHL_LOAD(glAttachShader);
+    TOSHL_LOAD(glLinkProgram);        TOSHL_LOAD(glGetProgramiv);
+    TOSHL_LOAD(glUseProgram);         TOSHL_LOAD(glGetUniformLocation);
+    TOSHL_LOAD(glUniform1i);          TOSHL_LOAD(glUniform1f);
+    TOSHL_LOAD(glUniform2f);          TOSHL_LOAD(glDeleteShader);
+    #undef TOSHL_LOAD
+    g_crt_gl2 = 1;
+    return 1;
+}
+
+static GLuint crt_compile(GLenum type, const char *src) {
+    GLuint s = p_glCreateShader(type);
+    if (!s) return 0;
+    p_glShaderSource(s, 1, &src, NULL);
+    p_glCompileShader(s);
+    GLint ok = 0;
+    p_glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+    if (!ok) { p_glDeleteShader(s); return 0; }
+    return s;
+}
+
+static int crt_build(void) {
+    if (g_crt_state) return g_crt_state > 0;
+    if (!crt_load_gl2()) { g_crt_state = -1; return 0; }
+
+    GLuint vs = crt_compile(GL_VERTEX_SHADER, CRT_VS);
+    GLuint fs = crt_compile(GL_FRAGMENT_SHADER, CRT_FS);
+    if (!vs || !fs) {
+        if (vs) p_glDeleteShader(vs);
+        if (fs) p_glDeleteShader(fs);
+        g_crt_state = -1;
+        return 0;
+    }
+
+    GLuint p = p_glCreateProgram();
+    p_glAttachShader(p, vs);
+    p_glAttachShader(p, fs);
+    p_glLinkProgram(p);
+    GLint ok = 0;
+    p_glGetProgramiv(p, GL_LINK_STATUS, &ok);
+    p_glDeleteShader(vs);
+    p_glDeleteShader(fs);
+    if (!ok) { g_crt_state = -1; return 0; }
+
+    g_crt_prog = p;
+    u_tex   = p_glGetUniformLocation(p, "uTex");
+    u_src   = p_glGetUniformLocation(p, "uSrc");
+    u_curve = p_glGetUniformLocation(p, "uCurve");
+    u_scan  = p_glGetUniformLocation(p, "uScan");
+    u_mask  = p_glGetUniformLocation(p, "uMask");
+    g_crt_state = 1;
+    return 1;
+}
+
+/* Bind the CRT program and push the current parameters. Returns 1 if the
+   effect is on and drawing should proceed under the shader, 0 to draw plain. */
+static int crt_begin(int src_w, int src_h) {
+    if (!g_crt_on) return 0;
+    if (!crt_build()) return 0;
+    p_glUseProgram(g_crt_prog);
+    if (u_tex   >= 0) p_glUniform1i(u_tex, 0);
+    if (u_src   >= 0) p_glUniform2f(u_src, (GLfloat)src_w, (GLfloat)src_h);
+    if (u_curve >= 0) p_glUniform1f(u_curve, g_crt_curve);
+    if (u_scan  >= 0) p_glUniform1f(u_scan, g_crt_scan);
+    if (u_mask  >= 0) p_glUniform1f(u_mask, g_crt_mask);
+    return 1;
+}
+
+static void crt_end(void) { p_glUseProgram(0); }
+
+/* Live CRT tuning from terminal_mode (which reads the toshl_crt* cvars).
+   Negative curve/scan/mask keep the current value. */
+void glhook_set_crt(int on, float curve, float scan, float mask) {
+    g_crt_on = on ? 1 : 0;
+    if (curve >= 0.0f) g_crt_curve = curve;
+    if (scan  >= 0.0f) g_crt_scan  = scan;
+    if (mask  >= 0.0f) g_crt_mask  = mask;
+}
+
 /* ----------------------------------------------------- world-space quad -- */
 
 static GLuint g_quad_tex;      /* our own texture, never a map texture */
@@ -464,12 +644,14 @@ void glhook_draw_quad(const uint8_t *rgba, int w, int h,
     /* U is flipped (1 on the left corners) because the in-plane "right" basis
        derived from the surface normal points to the viewer's left; without
        this, TempleOS renders mirrored. */
+    int crt = crt_begin(w, h);
     glBegin(GL_QUADS);
         glTexCoord2f(1.0f, 0.0f); glVertex3f(tl[0], tl[1], tl[2]);
         glTexCoord2f(0.0f, 0.0f); glVertex3f(tr[0], tr[1], tr[2]);
         glTexCoord2f(0.0f, 1.0f); glVertex3f(br[0], br[1], br[2]);
         glTexCoord2f(1.0f, 1.0f); glVertex3f(bl[0], bl[1], bl[2]);
     glEnd();
+    if (crt) crt_end();
 
     if (was_cull) glEnable(GL_CULL_FACE);
     if (was_blend) glEnable(GL_BLEND);
@@ -531,12 +713,14 @@ void glhook_draw_screen(const uint8_t *rgba, int w, int h, float coverage) {
     glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
+    int crt = crt_begin(w, h);
     glBegin(GL_QUADS);
         glTexCoord2f(0.0f, 0.0f); glVertex2f(x0, y0);
         glTexCoord2f(1.0f, 0.0f); glVertex2f(x1, y0);
         glTexCoord2f(1.0f, 1.0f); glVertex2f(x1, y1);
         glTexCoord2f(0.0f, 1.0f); glVertex2f(x0, y1);
     glEnd();
+    if (crt) crt_end();
 
     glMatrixMode(GL_PROJECTION); glPopMatrix();
     glMatrixMode(GL_MODELVIEW);  glPopMatrix();

@@ -25,6 +25,7 @@ extern "C" {
 extern "C" void  Con_Printf(const char *fmt, ...);   // wraps gEngfuncs->Con_Printf
 extern "C" int   TOSHL_AimSurface(float max_dist, float out_origin[3], float out_normal[3]);
 extern "C" void  TOSHL_QuadParams(float *size, float *fwd, float *right, float *up, float *aspect);
+extern "C" void  TOSHL_CrtParams(int *on, float *curve, float *scan, float *mask);
 extern "C" int   TOSHL_Fixed(void);
 extern "C" int   TOSHL_PlayerNear(float x, float y, float z, float radius);
 extern "C" void  LockPlayerMovement(int locked); // suppresses CL_CreateMove
@@ -185,6 +186,14 @@ extern "C" void TOSHL_OnRedraw() {
     }
 }
 
+// Push the CRT cvars (toshl_crt*) to the renderer before each draw so the
+// effect can be toggled and tuned live from the console.
+static void push_crt() {
+    int on = 1; float curve = -1.0f, scan = -1.0f, mask = -1.0f;
+    TOSHL_CrtParams(&on, &curve, &scan, &mask);
+    glhook_set_crt(on, curve, scan, mask);
+}
+
 // World pass (HUD_DrawTransparentTriangles): draw the live TempleOS frame as a
 // quad pinned to the surface the player engaged. Our own texture, so it never
 // smears onto the map's shared textures.
@@ -197,6 +206,7 @@ extern "C" void TOSHL_DrawWorld() {
         TOSHL_QuadParams(&size, &fwd, &sr, &su, &aspect);
         if (size <= 0.0f) size = g_quad_units;
         if (aspect <= 0.0f) aspect = 0.85f;
+        push_crt();
         glhook_draw_quad(frame, g_fb_w, g_fb_h, g_scr_origin, g_scr_normal,
                          size, size * aspect, fwd, sr, su);
         rfb_release_frame(g_rfb);
@@ -217,6 +227,7 @@ extern "C" void TOSHL_DrawOverlay() {
     uint32_t serial;
     const uint8_t *frame = rfb_acquire_frame(g_rfb, &serial);
     if (frame) {
+        push_crt();
         glhook_draw_screen(frame, g_fb_w, g_fb_h, 0.92f);
         rfb_release_frame(g_rfb);
     }

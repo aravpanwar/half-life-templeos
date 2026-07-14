@@ -78,6 +78,15 @@ void glhook_draw_quad(const uint8_t *rgba, int w, int h,
  */
 void glhook_draw_screen(const uint8_t *rgba, int w, int h, float coverage);
 
+/*
+ * CRT post-effect toggle and tuning, applied to both draw paths above:
+ * barrel curvature, scanlines, an RGB shadow mask and a vignette, via a GLSL
+ * fragment shader. Falls back to a plain textured quad if GL 2.0 or shader
+ * compilation is unavailable. Pass a negative curve/scan/mask to leave that
+ * value unchanged. Safe to call every frame (e.g. from the cvars).
+ */
+void glhook_set_crt(int on, float curve, float scan, float mask);
+
 void glhook_discover_enable(bool on);
 void glhook_discover_paint(void);
 /* Like discover_paint but shows the (scaled) live VM frame on the solo
