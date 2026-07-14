@@ -37,8 +37,9 @@ int  TOSHL_AimSurface(float max_dist, float out_origin[3], float out_normal[3]);
 void TOSHL_QuadParams(float* size, float* fwd, float* right, float* up, float* aspect);
 
 /* CRT post-effect controls from cvars (toshl_crt / toshl_crt_curve /
-   toshl_crt_scan / toshl_crt_mask). Defined in toshl_glue.cpp. */
-void TOSHL_CrtParams(int* on, float* curve, float* scan, float* mask);
+   toshl_crt_scan / toshl_crt_mask / toshl_crt_bezel). Defined in
+   toshl_glue.cpp. */
+void TOSHL_CrtParams(int* on, float* curve, float* scan, float* mask, float* bezel);
 
 /* 1 = auto-lock the panel to the baked control-room monitor (c1a0). */
 int  TOSHL_Fixed(void);

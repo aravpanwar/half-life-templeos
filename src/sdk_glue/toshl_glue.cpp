@@ -55,12 +55,13 @@ extern "C" int TOSHL_Fixed(void)
 // CRT post-effect controls, read every frame by the render path. toshl_crt
 // toggles the whole effect; the rest tune curvature, scanline depth and the
 // RGB shadow mask.
-extern "C" void TOSHL_CrtParams(int* on, float* curve, float* scan, float* mask)
+extern "C" void TOSHL_CrtParams(int* on, float* curve, float* scan, float* mask, float* bezel)
 {
 	*on    = gEngfuncs.pfnGetCvarFloat("toshl_crt") != 0.0f ? 1 : 0;
 	*curve = gEngfuncs.pfnGetCvarFloat("toshl_crt_curve");
 	*scan  = gEngfuncs.pfnGetCvarFloat("toshl_crt_scan");
 	*mask  = gEngfuncs.pfnGetCvarFloat("toshl_crt_mask");
+	*bezel = gEngfuncs.pfnGetCvarFloat("toshl_crt_bezel");
 }
 
 extern "C" void TOSHL_DrawHud(void)
@@ -84,16 +85,17 @@ extern "C" void TOSHL_RegisterCommands(void)
 	gEngfuncs.pfnAddCommand("toshl_lock", toshl_cmd_lock);
 	gEngfuncs.pfnAddCommand("toshl_zoom", toshl_cmd_zoom); // toggle fullscreen zoom
 
-	gEngfuncs.pfnRegisterVariable("toshl_size", "32", 0);    // quad width (units)
+	gEngfuncs.pfnRegisterVariable("toshl_size", "34", 0);    // quad width (units)
 	gEngfuncs.pfnRegisterVariable("toshl_fwd", "0.1", 0);    // offset toward viewer
 	gEngfuncs.pfnRegisterVariable("toshl_shiftr", "0", 0);   // shift right in plane
 	gEngfuncs.pfnRegisterVariable("toshl_shiftu", "0.6", 0); // shift up in plane
 	gEngfuncs.pfnRegisterVariable("toshl_aspect", "0.85", 0); // panel height/width
 	gEngfuncs.pfnRegisterVariable("toshl_fixed", "1", 0);    // 1=auto-lock to baked c1a0 monitor
 	gEngfuncs.pfnRegisterVariable("toshl_crt", "1", 0);         // 1=CRT shader on
-	gEngfuncs.pfnRegisterVariable("toshl_crt_curve", "0.12", 0); // barrel curvature
+	gEngfuncs.pfnRegisterVariable("toshl_crt_curve", "0.04", 0); // barrel curvature
 	gEngfuncs.pfnRegisterVariable("toshl_crt_scan", "0.35", 0);  // scanline depth
 	gEngfuncs.pfnRegisterVariable("toshl_crt_mask", "0.30", 0);  // shadow-mask depth
+	gEngfuncs.pfnRegisterVariable("toshl_crt_bezel", "0.3", 0);  // curvature-border opacity
 
 	// In discovery mode, bind the cycle keys ourselves. This runs at HUD_Init,
 	// AFTER the engine has exec'd config.cfg, so these binds win (config.cfg

@@ -25,7 +25,7 @@ extern "C" {
 extern "C" void  Con_Printf(const char *fmt, ...);   // wraps gEngfuncs->Con_Printf
 extern "C" int   TOSHL_AimSurface(float max_dist, float out_origin[3], float out_normal[3]);
 extern "C" void  TOSHL_QuadParams(float *size, float *fwd, float *right, float *up, float *aspect);
-extern "C" void  TOSHL_CrtParams(int *on, float *curve, float *scan, float *mask);
+extern "C" void  TOSHL_CrtParams(int *on, float *curve, float *scan, float *mask, float *bezel);
 extern "C" int   TOSHL_Fixed(void);
 extern "C" int   TOSHL_PlayerNear(float x, float y, float z, float radius);
 extern "C" void  LockPlayerMovement(int locked); // suppresses CL_CreateMove
@@ -59,7 +59,7 @@ static DWORD         g_connect_tick;      // GetTickCount at VM connect
 static int           g_dismiss_count;     // live-CD boot prompts auto-answered
 static float         g_scr_origin[3];    // frozen screen centre (trace hit)
 static float         g_scr_normal[3];    // frozen screen normal
-static float         g_quad_units = 32.0f; // quad width in game units (fallback)
+static float         g_quad_units = 34.0f; // quad width in game units (fallback)
 
 // -------------------------------------------------------------- helpers --
 
@@ -189,9 +189,9 @@ extern "C" void TOSHL_OnRedraw() {
 // Push the CRT cvars (toshl_crt*) to the renderer before each draw so the
 // effect can be toggled and tuned live from the console.
 static void push_crt() {
-    int on = 1; float curve = -1.0f, scan = -1.0f, mask = -1.0f;
-    TOSHL_CrtParams(&on, &curve, &scan, &mask);
-    glhook_set_crt(on, curve, scan, mask);
+    int on = 1; float curve = -1.0f, scan = -1.0f, mask = -1.0f, bezel = -1.0f;
+    TOSHL_CrtParams(&on, &curve, &scan, &mask, &bezel);
+    glhook_set_crt(on, curve, scan, mask, bezel);
 }
 
 // World pass (HUD_DrawTransparentTriangles): draw the live TempleOS frame as a

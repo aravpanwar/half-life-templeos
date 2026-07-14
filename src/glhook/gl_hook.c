@@ -437,13 +437,16 @@ static const char *CRT_FS =
     "uniform float uCurve;\n" /* barrel amount                     */
     "uniform float uScan;\n"  /* scanline depth 0..1               */
     "uniform float uMask;\n"  /* shadow-mask depth 0..1            */
+    "uniform float uBezel;\n" /* opacity of the curvature border 0..1 */
     "void main() {\n"
     "    vec2 uv0 = gl_TexCoord[0].xy;\n"
     "    vec2 cc = uv0 * 2.0 - 1.0;\n"
     "    cc *= 1.0 + uCurve * dot(cc, cc);\n"
     "    vec2 uv = cc * 0.5 + 0.5;\n"
+    /* outside the tube after warp: the bezel. uBezel controls how opaque the
+       black is, so it can blend into the wall (in-world) or the scene (zoom). */
     "    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {\n"
-    "        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return;\n"
+    "        gl_FragColor = vec4(0.0, 0.0, 0.0, uBezel); return;\n"
     "    }\n"
     "    vec3 col = texture2D(uTex, uv).rgb;\n"
     /* scanlines locked to the emulated rows, faded out when the panel is too
@@ -464,11 +467,12 @@ static const char *CRT_FS =
     "}\n";
 
 static int    g_crt_on = 1;
-static float  g_crt_curve = 0.12f, g_crt_scan = 0.35f, g_crt_mask = 0.30f;
+static float  g_crt_curve = 0.04f, g_crt_scan = 0.35f, g_crt_mask = 0.30f;
+static float  g_crt_bezel = 0.3f;
 static int    g_crt_gl2 = 0;    /* 0 untried, 1 loaded, -1 unavailable */
 static int    g_crt_state = 0;  /* 0 untried, 1 ready,  -1 failed      */
 static GLuint g_crt_prog;
-static GLint  u_tex, u_src, u_curve, u_scan, u_mask;
+static GLint  u_tex, u_src, u_curve, u_scan, u_mask, u_bezel;
 
 static int crt_load_gl2(void) {
     if (g_crt_gl2) return g_crt_gl2 > 0;
@@ -526,6 +530,7 @@ static int crt_build(void) {
     u_curve = p_glGetUniformLocation(p, "uCurve");
     u_scan  = p_glGetUniformLocation(p, "uScan");
     u_mask  = p_glGetUniformLocation(p, "uMask");
+    u_bezel = p_glGetUniformLocation(p, "uBezel");
     g_crt_state = 1;
     return 1;
 }
@@ -541,18 +546,24 @@ static int crt_begin(int src_w, int src_h) {
     if (u_curve >= 0) p_glUniform1f(u_curve, g_crt_curve);
     if (u_scan  >= 0) p_glUniform1f(u_scan, g_crt_scan);
     if (u_mask  >= 0) p_glUniform1f(u_mask, g_crt_mask);
+    if (u_bezel >= 0) p_glUniform1f(u_bezel, g_crt_bezel);
+    /* the curvature border uses alpha (uBezel), so blend it over what is
+       behind the panel instead of writing solid black. */
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     return 1;
 }
 
 static void crt_end(void) { p_glUseProgram(0); }
 
 /* Live CRT tuning from terminal_mode (which reads the toshl_crt* cvars).
-   Negative curve/scan/mask keep the current value. */
-void glhook_set_crt(int on, float curve, float scan, float mask) {
+   Negative curve/scan/mask/bezel keep the current value. */
+void glhook_set_crt(int on, float curve, float scan, float mask, float bezel) {
     g_crt_on = on ? 1 : 0;
     if (curve >= 0.0f) g_crt_curve = curve;
     if (scan  >= 0.0f) g_crt_scan  = scan;
     if (mask  >= 0.0f) g_crt_mask  = mask;
+    if (bezel >= 0.0f) g_crt_bezel = bezel;
 }
 
 /* ----------------------------------------------------- world-space quad -- */
@@ -654,7 +665,7 @@ void glhook_draw_quad(const uint8_t *rgba, int w, int h,
     if (crt) crt_end();
 
     if (was_cull) glEnable(GL_CULL_FACE);
-    if (was_blend) glEnable(GL_BLEND);
+    if (was_blend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
     if (!was_tex) glDisable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, (GLuint)prev_bound);
     glPixelStorei(GL_UNPACK_ALIGNMENT, prev_align);
@@ -726,7 +737,7 @@ void glhook_draw_screen(const uint8_t *rgba, int w, int h, float coverage) {
     glMatrixMode(GL_MODELVIEW);  glPopMatrix();
     if (was_depth) glEnable(GL_DEPTH_TEST);
     if (was_cull)  glEnable(GL_CULL_FACE);
-    if (was_blend) glEnable(GL_BLEND);
+    if (was_blend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
     if (!was_tex)  glDisable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, (GLuint)prev_bound);
     glPixelStorei(GL_UNPACK_ALIGNMENT, prev_align);
