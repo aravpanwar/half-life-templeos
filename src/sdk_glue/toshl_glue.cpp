@@ -66,7 +66,12 @@ extern "C" void TOSHL_CrtParams(int* on, float* curve, float* scan, float* mask,
 
 extern "C" void TOSHL_DrawHud(void)
 {
-	// Hide the aim dot only while actually driving a terminal (movement locked).
+	// The centre aim dot is only an aid for manual placement (toshl_fixed 0).
+	// With the panel baked in place (the default) there is nothing to aim at,
+	// so draw nothing.
+	if (0 != TOSHL_Fixed())
+		return;
+	// Also hide it while actually driving a terminal (movement locked).
 	if (0 != TOSHL_WantsMovementLock())
 		return;
 	int w = ScreenWidth, h = ScreenHeight;
