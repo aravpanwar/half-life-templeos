@@ -75,6 +75,7 @@ No key binding needed; the mod claims these keys directly.
 | `toshl_crt_curve N`   | barrel curvature amount (0 = flat glass)         |
 | `toshl_crt_scan N`    | scanline depth (0 = none)                        |
 | `toshl_crt_mask N`    | RGB shadow-mask depth (0 = none)                 |
+| `toshl_crt_bezel N`   | curvature-border opacity (1 = black, 0 = clear)  |
 
 ## Repo layout
 
