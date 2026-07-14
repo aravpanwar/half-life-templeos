@@ -43,7 +43,10 @@ in the game. Instead it runs beside the game and is streamed in:
 3. **Render.** From the client's world-draw pass the mod uploads that frame to
    its own GL texture and draws it as a flat quad pinned to a monitor surface.
    It uses the mod's own texture and geometry, so it never touches the map's
-   shared, tiled textures. The screen stays crisp with zero bleed onto walls.
+   shared, tiled textures. The screen stays crisp with zero bleed onto walls. A
+   GLSL fragment shader then gives it curved glass, scanlines and an RGB shadow
+   mask, so it reads as a real CRT instead of a flat sprite. If the driver has
+   no GL 2.0, the shader is skipped and the plain quad is drawn.
 4. **Interaction.** Walk up to the console and press **X** to sit down and
    type, which only works when you are close; your keyboard then routes straight
    to TempleOS over RFB. Press **Z** to blow the panel up fullscreen so it is
@@ -68,6 +71,10 @@ No key binding needed; the mod claims these keys directly.
 | `toshl_shiftu N`      | slide the panel up (negative = down)             |
 | `toshl_fwd N`         | push the panel off the wall toward you           |
 | `toshl_fixed 0`       | drop the baked spot; aim and +use to place it    |
+| `toshl_crt 0`         | turn the CRT shader off (curvature/scanlines/mask)|
+| `toshl_crt_curve N`   | barrel curvature amount (0 = flat glass)         |
+| `toshl_crt_scan N`    | scanline depth (0 = none)                        |
+| `toshl_crt_mask N`    | RGB shadow-mask depth (0 = none)                 |
 
 ## Repo layout
 
@@ -133,7 +140,6 @@ build\Release\rfb_probe.exe 127.0.0.1 5900 frame.ppm   # open frame.ppm
 ## Roadmap
 
 - Persist a writable TempleOS data drive so files survive between sessions
-- CRT / scanline shader pass on the panel
 - PC-speaker to DirectSound so you hear the hymns
 - Terminals placed in more maps
 
