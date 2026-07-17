@@ -6,24 +6,7 @@ press use, and you're driving Terry Davis's 640x480 16-color operating system,
 running for real inside Black Mesa. Not a video, not a mockup. HolyC at your
 fingertips.
 
-![TempleOS 5.03 on a Black Mesa control-room monitor in Half-Life](docs/screenshot.jpg)
-
-![The same panel driven live: the HolyC command line and the God menu, streamed in real time](docs/demo.gif)
-
-> **A tribute.** TempleOS is the life's work of Terry A. Davis, released into
-> the public domain by his wish.
-
----
-
-## Read this first: VAC / online play
-
-This mod ships a custom `client.dll` that draws into Half-Life's OpenGL scene
-(and hooks `glTexImage2D` for its discovery tool). **Running modified game code
-while connected to a VAC-secured server can get your account banned.** This is
-a **singleplayer / `-insecure` / local-listen-server toy only.** Do not use it
-on secure multiplayer servers. You've been warned in bold.
-
----
+![TempleOS 5.03 driven live on a Black Mesa control-room monitor in Half-Life: the HolyC command line and the God menu, streamed in real time](docs/demo.gif)
 
 ## How it works
 
@@ -60,6 +43,8 @@ in the game. Instead it runs beside the game and is streamed in:
    TempleOS's PC-speaker output (the beeps and the hymns) to the host over SDL
    audio. It is off by default, and if the audio backend can't start headless
    the VM simply launches silent, so sound can never hold TempleOS back.
+
+![The panel pinned to the monitor in the c1a0 control room, curved CRT glass and all](docs/screenshot.jpg)
 
 By default the panel auto-locks onto a specific Black Mesa control-room monitor
 in `c1a0`, so TempleOS is just there when you arrive. Set `toshl_fixed 0` to aim
@@ -132,7 +117,7 @@ Then open `halflife-updated\projects\vs2019\projects.sln` in Visual Studio
 2019 and build **hl_cdll** in **Release / Win32**. The post-build step installs
 `client.dll` into the mod folder named in `halflife-updated\filecopy.bat`. Launch
 Half-Life on the steam_legacy branch as a local singleplayer / `-insecure`
-session (see the VAC note above) and load a map with a monitor, such as `c1a0`.
+session and load a map with a monitor, such as `c1a0`.
 
 The integration is a single git patch (`integration/halflife-updated.patch`);
 the script just applies it, and `-Revert` undoes it. It touches only three SDK
