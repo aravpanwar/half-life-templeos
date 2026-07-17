@@ -6,6 +6,8 @@ press use, and you're driving Terry Davis's 640x480 16-color operating system,
 running for real inside Black Mesa. Not a video, not a mockup. HolyC at your
 fingertips.
 
+![TempleOS 5.03 running live on a Black Mesa control-room monitor in Half-Life](docs/demo.gif)
+
 > **A tribute.** TempleOS is the life's work of Terry A. Davis, released into
 > the public domain by his wish.
 
