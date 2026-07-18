@@ -122,52 +122,106 @@ tools/           rfb_probe: prove the VM pipeline works before touching HL
 vm/              setup script; TempleOS.iso + qemu_path.txt live here
 ```
 
-## Build
+## Run it on your machine
 
-You need Visual Studio 2019 (v142 toolset, 32-bit MSVC), QEMU, and a checkout
-of the Half-Life SDK. Use the **steam_legacy** branch: the 25th-Anniversary
-update replaced GoldSrc's classic OpenGL path, and the GL rendering this mod
-relies on only works on the pre-anniversary (steam_legacy) engine.
+The mod is not a standalone binary: its sources compile into the Half-Life SDK's
+client library, so you build that library and assemble a small mod folder next
+to Half-Life. It is several steps, but every one is a concrete command.
 
-The mod is not a standalone binary; its sources compile into the SDK's client
-library. So the flow is: check out the SDK, check out this repo next to it, and
-run one script that adds the mod sources and the entry-point splices to the SDK
-project.
+### Prerequisites
+
+- **Half-Life on Steam, switched to the `steam_legacy` branch.** In Steam,
+  right-click Half-Life, choose Properties, Betas, and select `steam_legacy`.
+  The 25th-Anniversary update replaced GoldSrc's classic OpenGL path, and the GL
+  rendering this mod relies on only works on the pre-anniversary engine.
+- **Visual Studio 2019** with the "Desktop development with C++" workload (the
+  v142 toolset and 32-bit tools).
+- **QEMU for Windows** (https://www.qemu.org/download/#windows).
+- **Steam must be running whenever you launch.** GoldSrc loads through Steam; if
+  Steam is closed the game sits at the menu and the VM never starts.
+
+### 1. Get the sources, side by side
+
+Clone both into the same parent folder and keep the `half-life-templeos` folder
+name (the project references the mod by that relative path).
 
 ```powershell
-# 1. Half-Life SDK, steam_legacy branch (this mod is developed against edbae22)
 git clone https://github.com/SamVanheer/halflife-updated
-git -C halflife-updated checkout steam_legacy
-
-# 2. This repo, NEXT TO the SDK (same parent folder), folder name kept, submodule included
+git -C halflife-updated checkout steam_legacy   # developed against commit edbae22
 git clone --recursive https://github.com/aravpanwar/half-life-templeos
 #   git submodule update --init   # if you forgot --recursive
+```
 
-# 3. Fetch the TempleOS ISO and point the mod at your QEMU install
+### 2. Fetch the ISO and point at QEMU
+
+```powershell
 powershell -ExecutionPolicy Bypass -File half-life-templeos\vm\setup.ps1
+```
 
-# 4. Wire the mod into the SDK client project (adds sources + the three splices)
+Downloads the public-domain TempleOS ISO into `vm\` and writes `vm\qemu_path.txt`
+with the path to `qemu-system-x86_64.exe` (edit it if QEMU is somewhere unusual).
+
+### 3. Wire the mod into the SDK
+
+```powershell
 powershell -ExecutionPolicy Bypass -File half-life-templeos\integration\apply-integration.ps1 -SdkPath halflife-updated
 ```
 
-Then open `halflife-updated\projects\vs2019\projects.sln` in Visual Studio
-2019 and build **hl_cdll** in **Release / Win32**. The post-build step installs
-`client.dll` into the mod folder named in `halflife-updated\filecopy.bat`. Launch
-Half-Life on the steam_legacy branch as a local singleplayer / `-insecure`
-session and load a map with a monitor, such as `c1a0`.
+This applies one git patch (`integration/halflife-updated.patch`): it adds the
+mod sources to the client project and splices three entry-point calls into
+`cdll_int.cpp`, `input.cpp` and `tri.cpp`. Run it again with `-Revert` to undo it
+cleanly.
 
-The integration is a single git patch (`integration/halflife-updated.patch`);
-the script just applies it, and `-Revert` undoes it. It touches only three SDK
-files (`cdll_int.cpp`, `input.cpp`, `tri.cpp`) at tagged splice points, plus the
-project file and `filecopy.bat`.
+### 4. Build the client library
 
-Optional: sanity-check the VM pipeline with no game involved.
+Open `halflife-updated\projects\vs2019\projects.sln` in Visual Studio 2019,
+choose **Release / Win32**, and build the **hl_cdll** project. The post-build
+step copies `client.dll` into the mod folder named in
+`halflife-updated\filecopy.bat` (edit that path if your Steam library lives
+elsewhere).
+
+### 5. Assemble the mod folder
+
+The build drops in `client.dll`, but a GoldSrc mod folder needs a few more
+files. Run this once, from the parent folder, adjusting the Half-Life path if
+yours differs:
+
+```powershell
+$hl   = "C:\Program Files (x86)\Steam\steamapps\common\Half-Life"
+$mod  = "$hl\half-life-templeos"
+$repo = "half-life-templeos"   # this repo
+New-Item -ItemType Directory -Force "$mod\dlls", "$mod\vm" | Out-Null
+Copy-Item "$repo\liblist.gam", "$repo\monitor_fingerprints.txt" $mod
+Copy-Item "$hl\valve\dlls\hl.dll" "$mod\dlls\hl.dll"   # stock server: the mod only changes the client
+Copy-Item "$repo\vm\TempleOS.iso", "$repo\vm\qemu_path.txt" "$mod\vm\"
+```
+
+The mod is client-only, so it reuses Half-Life's stock server DLL, and
+`liblist.gam` already sets `fallback_dir "valve"` for maps and assets.
+
+### 6. Run it
+
+Make sure Steam is running, then launch on the steam_legacy branch and load a
+map with a monitor:
+
+```powershell
+& "$hl\hl.exe" -game half-life-templeos -console -insecure +map c1a0
+```
+
+TempleOS boots on the control-room monitor in `c1a0`. Walk up, press **X** to
+type and **Z** to zoom; then use the commands under [Using TempleOS](#using-templeos).
+
+### Optional: prove the VM pipeline first
+
+Before involving the game you can confirm QEMU and the RFB client work on their
+own. Start the VM by hand (leave it running), then grab a frame in another shell:
 
 ```powershell
 cd half-life-templeos
 cmake -B build -A Win32
 cmake --build build --config Release --target rfb_probe
-build\Release\rfb_probe.exe 127.0.0.1 5900 frame.ppm   # open frame.ppm
+& (Get-Content vm\qemu_path.txt) -m 512 -drive file=vm\TempleOS.iso,media=cdrom -boot d -snapshot -vnc 127.0.0.1:0
+build\Release\rfb_probe.exe 127.0.0.1 5900 frame.ppm   # then open frame.ppm
 ```
 
 ## Roadmap
