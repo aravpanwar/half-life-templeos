@@ -72,6 +72,18 @@ No key binding needed; the mod claims these keys directly.
 | `toshl_crt_bezel N`   | curvature-border opacity (1 = black, 0 = clear)  |
 | `toshl_sound 1`       | opt-in PC-speaker audio (reload the map to apply) |
 
+Console commands (type them in the `~` console):
+
+| Command | What it does |
+|---------|--------------|
+| `toshl_zoom` | toggle the fullscreen zoom (same as pressing Z) |
+| `toshl_next` / `toshl_prev` | discovery tool: cycle the highlighted surface |
+| `toshl_lock` | discovery tool: print the highlighted surface's fingerprint |
+
+The discovery commands only do anything when the mod is started with the
+`TOSHL_DISCOVER` environment variable set; they exist to locate a monitor
+surface when pinning the panel on a new map.
+
 ## Using TempleOS
 
 TempleOS is keyboard-driven and case-sensitive; its shell is a live HolyC JIT,
