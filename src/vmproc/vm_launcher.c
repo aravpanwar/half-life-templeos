@@ -65,8 +65,12 @@ bool vm_launch(const char *mod_dir, int vnc_display, int audio) {
         fclose(f);
         char *nl = strpbrk(qemu, "\r\n"); if (nl) *nl = 0;
     } else {
-        strcpy(qemu, "qemu-system-x86_64.exe"); /* hope it's on PATH */
+        qemu[0] = 0;
     }
+    /* Absent or empty config: fall back to the PATH default rather than
+       trying to launch an empty path. */
+    if (qemu[0] == 0)
+        strcpy(qemu, "qemu-system-x86_64.exe");
 
     _snprintf(iso, sizeof(iso), "%s\\vm\\TempleOS.iso", mod_dir);
 

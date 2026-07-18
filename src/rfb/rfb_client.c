@@ -270,7 +270,27 @@ rfb_client_t *rfb_connect(const char *host, uint16_t port) {
     BOOL nd = TRUE;
     setsockopt(c->sock, IPPROTO_TCP, TCP_NODELAY, (const char *)&nd, sizeof(nd));
 
+    /* Bound the handshake so a wedged peer (a stalled QEMU, a stale dying
+       instance still holding the port, or anything else that accepts but
+       never speaks RFB) cannot block the render thread forever. */
+    DWORD tmo = 5000; /* ms */
+    setsockopt(c->sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tmo, sizeof(tmo));
+    setsockopt(c->sock, SOL_SOCKET, SO_SNDTIMEO, (const char *)&tmo, sizeof(tmo));
+
     if (!handshake(c)) { closesocket(c->sock); free(c); return NULL; }
+
+    /* Restore blocking: a still TempleOS screen sends no updates, so the pump
+       must be able to wait indefinitely for the next one without timing out. */
+    tmo = 0;
+    setsockopt(c->sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tmo, sizeof(tmo));
+    setsockopt(c->sock, SOL_SOCKET, SO_SNDTIMEO, (const char *)&tmo, sizeof(tmo));
+
+    /* Sanity-cap the negotiated geometry: guards the 32-bit size math below
+       and rejects an implausible ServerInit instead of overflowing the heap. */
+    if (c->fb_w <= 0 || c->fb_h <= 0 || c->fb_w > 4096 || c->fb_h > 4096) {
+        set_err("implausible framebuffer size %dx%d", c->fb_w, c->fb_h);
+        closesocket(c->sock); free(c); return NULL;
+    }
 
     size_t sz = (size_t)c->fb_w * c->fb_h * 4;
     c->buf[0] = (uint8_t *)calloc(1, sz);
@@ -287,9 +307,16 @@ rfb_client_t *rfb_connect(const char *host, uint16_t port) {
 }
 
 bool rfb_start(rfb_client_t *c) {
+    /* Set running before CreateThread so the pump never observes 0 and exits
+       on the first loop check; reset it if the thread never starts, so
+       rfb_is_connected does not report a live connection that has no pump. */
     InterlockedExchange(&c->running, 1);
     c->thread = CreateThread(NULL, 0, pump_thread, c, 0, NULL);
-    if (!c->thread) { set_err("CreateThread failed"); return false; }
+    if (!c->thread) {
+        InterlockedExchange(&c->running, 0);
+        set_err("CreateThread failed");
+        return false;
+    }
     return true;
 }
 
