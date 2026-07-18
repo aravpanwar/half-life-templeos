@@ -156,9 +156,10 @@ build\Release\rfb_probe.exe 127.0.0.1 5900 frame.ppm   # open frame.ppm
 
 - Persist a writable TempleOS data drive so files survive between sessions
 - Terminals placed in more maps
-- Mouse support. TempleOS is PS/2-only, and QEMU confines a PS/2 mouse driven
-  over VNC to a small region; making the cursor track fully would need an
-  absolute pointing device TempleOS does not have a driver for.
+- Mouse support ([#1](https://github.com/aravpanwar/half-life-templeos/issues/1)).
+  TempleOS is PS/2-only, and QEMU confines a PS/2 mouse driven over VNC to a
+  small region; making the cursor track fully would need an absolute pointing
+  device TempleOS does not have a driver for.
 
 ## Licensing
 
