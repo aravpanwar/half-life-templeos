@@ -111,6 +111,25 @@ is on, try something musical like God Song from the menu or a demo under
 `::/Demo`. If the audio backend can't start on your machine the VM just runs
 silent, it never blocks TempleOS from booting.
 
+## Download and run
+
+Prefer not to build it? Grab the prebuilt client from the
+[latest release](https://github.com/aravpanwar/half-life-templeos/releases/latest)
+and drop it next to Half-Life. No compiler needed.
+
+1. Own Half-Life on Steam and switch it to the `steam_legacy` branch (right-click
+   Half-Life, Properties, Betas). Install
+   [QEMU for Windows](https://www.qemu.org/download/#windows).
+2. Unzip the release into your Half-Life folder so the `half-life-templeos` folder
+   sits next to `hl.exe` and the `valve` folder.
+3. Run `half-life-templeos\vm\setup.ps1` to fetch the TempleOS ISO and locate QEMU.
+4. With Steam running:
+   `hl.exe -game half-life-templeos -console -insecure +map c1a0`
+
+Walk up to the control-room monitor, press **X** to type and **Z** to zoom. The
+mod is client-only and reuses Half-Life's stock server DLL automatically, so no
+Valve files need copying.
+
 ## Repo layout
 
 ```
@@ -124,9 +143,10 @@ tools/           rfb_probe: prove the VM pipeline works before touching HL
 vm/              setup script; TempleOS.iso + qemu_path.txt live here
 ```
 
-## Run it on your machine
+## Build it from source
 
-The mod is not a standalone binary: its sources compile into the Half-Life SDK's
+Want to compile it yourself instead of using the [prebuilt
+release](#download-and-run)? The mod's sources compile into the Half-Life SDK's
 client library, so you build that library and assemble a small mod folder next
 to Half-Life. It is several steps, but every one is a concrete command.
 
@@ -192,14 +212,14 @@ yours differs:
 $hl   = "C:\Program Files (x86)\Steam\steamapps\common\Half-Life"
 $mod  = "$hl\half-life-templeos"
 $repo = "half-life-templeos"   # this repo
-New-Item -ItemType Directory -Force "$mod\dlls", "$mod\vm" | Out-Null
+New-Item -ItemType Directory -Force "$mod\vm" | Out-Null
 Copy-Item "$repo\liblist.gam", "$repo\monitor_fingerprints.txt" $mod
-Copy-Item "$hl\valve\dlls\hl.dll" "$mod\dlls\hl.dll"   # stock server: the mod only changes the client
 Copy-Item "$repo\vm\TempleOS.iso", "$repo\vm\qemu_path.txt" "$mod\vm\"
 ```
 
-The mod is client-only, so it reuses Half-Life's stock server DLL, and
-`liblist.gam` already sets `fallback_dir "valve"` for maps and assets.
+The mod is client-only, so it never ships a server DLL. `liblist.gam` sets
+`fallback_dir "valve"`, so the engine loads Half-Life's stock `hl.dll`, maps and
+assets straight from your `valve` folder.
 
 ### 6. Run it
 
