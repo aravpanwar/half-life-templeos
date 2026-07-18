@@ -6,7 +6,7 @@ press use, and you're driving Terry Davis's 640x480 16-color operating system,
 running for real inside Black Mesa. Not a video, not a mockup. HolyC at your
 fingertips.
 
-![TempleOS 5.03 driven live on a Black Mesa control-room monitor in Half-Life: the HolyC command line and the God menu, streamed in real time](docs/demo.gif)
+![Three TempleOS programs running live on a Black Mesa control-room monitor in Half-Life: the Varoom racing game, a rotating 3D tank, and spinning polygons, all streamed in real time](docs/demo.gif)
 
 ## How it works
 
@@ -102,6 +102,8 @@ Worth trying: the games and demos under `::/Demo/Games` and `::/Demo/Graphics`
 (run `Dir;` there to see what your ISO ships), and TempleOS's built-in oracle,
 "God's Word", from the menu that Terry believed let God speak through the RNG.
 Most demos exit with **Esc**.
+
+![The HolyC command line and the God menu driven live over the in-game monitor](docs/holyc.gif)
 
 For sound, set `toshl_sound 1` and reload the map (`map c1a0`). TempleOS makes
 all its noise on the PC speaker, which the mod routes to your host, so once it
