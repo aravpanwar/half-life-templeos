@@ -103,6 +103,12 @@ Worth trying: the games and demos under `::/Demo/Games` and `::/Demo/Graphics`
 "God's Word", from the menu that Terry believed let God speak through the RNG.
 Most demos exit with **Esc**.
 
+For sound, set `toshl_sound 1` and reload the map (`map c1a0`). TempleOS makes
+all its noise on the PC speaker, which the mod routes to your host, so once it
+is on, try something musical like God Song from the menu or a demo under
+`::/Demo`. If the audio backend can't start on your machine the VM just runs
+silent, it never blocks TempleOS from booting.
+
 ## Repo layout
 
 ```
