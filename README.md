@@ -72,6 +72,25 @@ No key binding needed; the mod claims these keys directly.
 | `toshl_crt_bezel N`   | curvature-border opacity (1 = black, 0 = clear)  |
 | `toshl_sound 1`       | opt-in PC-speaker audio (reload the map to apply) |
 
+## Using TempleOS
+
+TempleOS is keyboard-driven and case-sensitive; its shell is a live HolyC JIT,
+so statements end with `;`. Once you have pressed **X** to type and **Z** to
+zoom, a few commands get you moving:
+
+| Command | What it does |
+|---------|--------------|
+| `Dir;` | list the current folder |
+| `Cd("::/Demo");` | change folder (`::/` is the drive root; `Cd("..");` goes up) |
+| `#include "::/Demo/Games/Castle/Castle"` | compile and run a program (no extension needed) |
+| `"Hello from Black Mesa\n";` | a bare string prints itself |
+| `Print("%d\n", 2 + 2);` | formatted print |
+
+Worth trying: the games and demos under `::/Demo/Games` and `::/Demo/Graphics`
+(run `Dir;` there to see what your ISO ships), and TempleOS's built-in oracle,
+"God's Word", from the menu that Terry believed let God speak through the RNG.
+Most demos exit with **Esc**.
+
 ## Repo layout
 
 ```
