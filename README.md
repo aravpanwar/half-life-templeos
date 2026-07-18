@@ -174,6 +174,11 @@ git clone --recursive https://github.com/aravpanwar/half-life-templeos
 #   git submodule update --init   # if you forgot --recursive
 ```
 
+The mod pulls in MinHook as a submodule. If that clone fails with `Filename too
+long`, your path is deep enough to hit Windows' 260-character limit; run `git
+config --global core.longpaths true` (or clone into a short path like `C:\dev`)
+and retry `git submodule update --init`.
+
 ### 2. Fetch the ISO and point at QEMU
 
 ```powershell
