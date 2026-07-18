@@ -89,9 +89,10 @@ static void toshl_toggle_typing() {
 }
 
 static void resolve_mod_dir() {
-    // GetGameDirectory returns e.g. "half-life-templeos"; make absolute.
+    // The mod folder name is fixed at "half-life-templeos" by liblist.gam, the
+    // build's copy target and the integration paths, and hl.exe runs from the
+    // Half-Life root, so the working directory plus that name is the mod path.
     char cwd[MAX_PATH]; GetCurrentDirectoryA(MAX_PATH, cwd);
-    // In production, query gEngfuncs->pfnGetGameDirectory().
     _snprintf(g_mod_dir, MAX_PATH, "%s\\half-life-templeos", cwd);
 }
 

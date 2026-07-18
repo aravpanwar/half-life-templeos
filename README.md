@@ -2,7 +2,7 @@
 
 Run a full, live [TempleOS](https://templeos.org) instance on a working
 computer monitor inside **Half-Life 1** (GoldSrc). Walk up to the terminal,
-press use, and you're driving Terry Davis's 640x480 16-color operating system,
+press X, and you're driving Terry Davis's 640x480 16-color operating system,
 running for real inside Black Mesa. Not a video, not a mockup. HolyC at your
 fingertips.
 
@@ -19,7 +19,7 @@ in the game. Instead it runs beside the game and is streamed in:
  │ TempleOS live CD, headless│  loopback   │ tiny RFB client (Raw encoding) │
  │ -vnc 127.0.0.1:0          │◄───────────►│ streams 640x480 RGBA per frame │
  │ public-domain ISO         │             │ draws it as a quad on a monitor│
- └───────────────────────────┘             │ +use = drive it, keyboard to VM│
+ └───────────────────────────┘             │ press X to type; keys to the VM│
                                            └────────────────────────────────┘
 ```
 

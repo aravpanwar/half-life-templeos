@@ -19,12 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This license covers the original code in this repository only. It does NOT
-cover:
-  - TempleOS (public domain; Terry A. Davis)
-  - QEMU (GPL; not distributed here, used as a separate process)
-  - MinHook (BSD-2-Clause; see third_party/minhook)
-  - Half-Life and the Half-Life SDK (Valve; you must own the game)
